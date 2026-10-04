@@ -25,7 +25,8 @@ window.SITE_CONFIG = {
   },
 
   /* ---------- 3. 상단 메뉴 (id는 바꾸지 마세요) ---------- */
-  navRev: 2,   // 메뉴 구성 버전(바꾸지 마세요)
+  navRev: 2,       // 메뉴 구성 버전(바꾸지 마세요)
+  contentRev: 1,   // 내용 정리 버전(바꾸지 마세요)
   nav: [
     { id: "intro",      label: "강의 소개" },
     { id: "curriculum", label: "커리큘럼" },
@@ -165,11 +166,10 @@ window.SITE_CONFIG = {
   tools: {
     kicker: "AI Tools",
     title: "실습에 쓰는 *대표* AI 도구",
-    lead: "번역기, 문법 교정기, 음성 인식, 이미지·영상 생성 도구 등은 수업에서 함께 탐색합니다. 일부 기능은 유료 가입이 필요할 수 있습니다.",
+    lead: "번역기, 문법 교정기, 음성 인식, 이미지·영상 생성 도구 등은 수업에서 함께 탐색합니다.",
     items: [
       { name: "ChatGPT", maker: "OpenAI",    use: "GPTs로 한국어 챗봇 제작, Canvas로 발표 자료·스크립트 작성",  url: "https://chatgpt.com" },
       { name: "Gemini",  maker: "Google",    use: "Gems로 스토리북·챗봇 제작, 맞춤 설정과 번역 결과 비교",    url: "https://gemini.google.com" },
-      { name: "Papago",  maker: "NAVER",     use: "한국어↔모어 번역 결과를 직접 번역과 비교",              url: "https://papago.naver.com" },
       { name: "Claude",  maker: "Anthropic", use: "칼럼 초안에 대한 피드백과 표현 다듬기",                url: "https://claude.ai" }
     ]
   },
@@ -303,7 +303,7 @@ window.SITE_CONFIG = {
     prepTitle: "수강 준비물",
     prep: [
       { title: "개인 노트북 (필수)", body: "매시간 AI 도구와 글쓰기를 실습합니다. 태블릿은 기능 제한이 있어 권장하지 않습니다." },
-      { title: "생성형 AI 계정", body: "ChatGPT, Gemini 등 이미 쓰고 있는 계정을 준비하세요. 일부 기능은 유료 가입이 필요할 수 있습니다." },
+      { title: "생성형 AI 계정", body: "ChatGPT, Gemini 등 이미 쓰고 있는 계정을 준비하세요." },
       { title: "LMS · 공유 드라이브", body: "주차별 자료는 LMS에서 받고, 수업 활동 결과는 수업 시간 내에 공유 드라이브에 올립니다." },
       { title: "한국어 숙달도", body: "TOPIK 4급 이상 수준을 권장합니다. 개인 실습과 팀 실습이 함께 이루어집니다." }
     ]

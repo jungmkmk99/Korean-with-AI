@@ -25,6 +25,17 @@ window.renderSite = function () {
     ];
     C.navRev = NAV_REV;
   }
+  /* 내용 정리(예전에 저장된 설정에도 적용): Papago 도구 카드 삭제, '일부 기능은 유료 가입…' 문구 삭제 */
+  var CONTENT_REV = 1;
+  if ((C.contentRev || 0) < CONTENT_REV) {
+    var noPaid = function (s) { return typeof s === "string" ? s.replace(/\s*일부 기능은 유료 가입이 필요할 수 있습니다\.?/g, "") : s; };
+    if (C.tools) {
+      C.tools.lead = noPaid(C.tools.lead);
+      C.tools.items = (C.tools.items || []).filter(function (t) { return !/^papago$/i.test(String(t.name || "").trim()); });
+    }
+    if (C.guide) (C.guide.prep || []).forEach(function (p) { p.body = noPaid(p.body); });
+    C.contentRev = CONTENT_REV;
+  }
 
   var esc = function (s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); };
   var $ = function (sel) { return document.querySelector(sel); };
@@ -236,11 +247,6 @@ window.renderSite = function () {
     function weekBody(w) {
       var r = w.raw, a = r.assignment;
       var out = '<div class="week-body">' + weekAdmin(w) +
-        '<dl class="week-meta">' +
-          '<div><dt>' + icon("calendar") + "날짜</dt><dd>" + w.date.getFullYear() + ". " + esc(dateLine(w)) + "</dd></div>" +
-          '<div><dt>' + icon("clock") + "시간</dt><dd>" + esc(w.time) + "</dd></div>" +
-          '<div><dt>' + icon("pin") + "장소</dt><dd>" + esc(w.location) + "</dd></div>" +
-        "</dl>" +
         '<div class="sessions">' + list(w.sessions, function (s) {
           return '<div class="sess' + (s.holiday ? " off" : "") + '"><span class="sess-day">' + esc(s.day) + '</span><div><span class="sess-date">' + esc(fmtDay(s.date)) + (s.holiday ? ' · 휴강(' + esc(s.holiday) + ")" : "") + '</span><b>' + esc(s.title) + "</b></div></div>";
         }) + "</div>" +
