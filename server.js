@@ -109,10 +109,32 @@ function clientUid(req) {
   const key = req.get("X-Client-Key") || "";
   return key.length >= 16 && key.length <= 128 ? "u" + sha256("akd-client::" + key).slice(0, 24) : null;
 }
+/* 관리자 토큰: 서버가 서명한 토큰(만료 시각 포함)이라 저장된 세션이 없어도 확인 가능
+   → 재배포·재시작으로 세션 저장소가 비어도 로그인 유지. 비밀번호를 바꾸면 기존 토큰은 모두 무효. */
+async function tokenKey() {
+  const a = await currentAdmin();
+  return sha256("akd-admin-token::" + (process.env.ADMIN_SECRET || "") + "::" + ((a && a.passwordHash) || ""));
+}
+async function makeToken() {
+  const body = Buffer.from(JSON.stringify({ exp: Date.now() + SESSION_HOURS * 3600e3, n: crypto.randomBytes(6).toString("hex") })).toString("base64url");
+  return body + "." + crypto.createHmac("sha256", await tokenKey()).update(body).digest("base64url");
+}
+async function verifyToken(t) {
+  const parts = String(t || "").split(".");
+  if (parts.length !== 2 || t.length > 300) return false;
+  const want = crypto.createHmac("sha256", await tokenKey()).update(parts[0]).digest("base64url");
+  if (parts[1].length !== want.length || !crypto.timingSafeEqual(Buffer.from(parts[1]), Buffer.from(want))) return false;
+  let exp = 0;
+  try { exp = JSON.parse(Buffer.from(parts[0], "base64url").toString("utf8")).exp; } catch (e) { return false; }
+  if (!(exp > Date.now())) return false;
+  const rv = await store.get("admin/revoked"); // 로그아웃한 토큰
+  return !(rv && Array.isArray(rv.sigs) && rv.sigs.includes(parts[1]));
+}
 async function isAdmin(req) {
   if (req._admin !== undefined) return req._admin;
-  const t = req.get("X-Admin-Token");
-  req._admin = !!t && t.length === 64 && (await store.hasSession(t, SESSION_HOURS));
+  const t = req.get("X-Admin-Token") || "";
+  // 서명 토큰 우선, 예전 방식(저장된 세션, 64자) 토큰도 아직 살아 있으면 인정
+  req._admin = t.includes(".") ? await verifyToken(t) : (t.length === 64 && (await store.hasSession(t, SESSION_HOURS)));
   return req._admin;
 }
 /* 관리자 승인: approvals/<학번> 문서가 있고, 이 브라우저의 로그인·신청서 이름이 같으면 승인된 수강생 */
@@ -188,8 +210,9 @@ const bad = (res) => res.status(400).json({ code: "bad_path" });
 app.use("/api", (req, res, next) => { res.set("Cache-Control", "no-store"); next(); });
 
 app.get("/api/me", wrap(async (req, res) => {
-  const a = await approval(req);
-  res.json({ uid: clientUid(req), admin: await isAdmin(req), approved: a.approved, studentId: a.studentId });
+  const a = await approval(req), admin = await isAdmin(req);
+  // 관리자면 만료 시각을 새로 늘린 토큰을 함께 보냄(접속할 때마다 30일 연장)
+  res.json({ uid: clientUid(req), admin, approved: a.approved, studentId: a.studentId, token: admin ? await makeToken() : undefined });
 }));
 
 /* 지금 적용할 사이트 설정: 공유 수정본이 있으면 그것, 없으면 config.js. 승인 전이면 주차별 자료 · 영상은 빠짐 */
@@ -248,14 +271,16 @@ app.post("/api/admin/login", wrap(async (req, res) => {
     return res.status(401).json({ code: "wrong_password" });
   }
   fails.delete(ip);
-  const token = crypto.randomBytes(32).toString("hex");
-  await store.addSession(token, SESSION_HOURS);
-  res.json({ token, hours: SESSION_HOURS });
+  res.json({ token: await makeToken(), hours: SESSION_HOURS });
 }));
 
 app.post("/api/admin/logout", wrap(async (req, res) => {
-  const t = req.get("X-Admin-Token");
-  if (t) await store.delSession(t);
+  const t = req.get("X-Admin-Token") || "";
+  if (t.includes(".") && (await verifyToken(t))) {
+    const rv = (await store.get("admin/revoked")) || { sigs: [] };
+    rv.sigs = (rv.sigs || []).concat(t.split(".")[1]).slice(-200);
+    await store.put("admin/revoked", "admin", rv);
+  } else if (t) await store.delSession(t);
   res.json({ ok: true });
 }));
 

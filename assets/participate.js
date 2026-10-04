@@ -98,10 +98,19 @@
       if (!(window.claude && typeof window.claude.use === "function")) {
         if (location.protocol !== "http:" && location.protocol !== "https:") { useLocal(); return Promise.resolve(); }
         adminToken = tokenGet();
-        return api("GET", "/api/me").then(function (j) {
+        /* 서버가 잠깐 응답하지 않아도(재시작 · 네트워크) 바로 체험 모드로 넘어가 로그인이 풀리지 않게 두 번 더 시도 */
+        var askMe = function (left) {
+          return api("GET", "/api/me").catch(function (e) {
+            var transient = !e || !e.status || e.status >= 500 || e.status === 429;
+            if (left > 0 && transient) return new Promise(function (r) { setTimeout(r, left === 2 ? 700 : 1600); }).then(function () { return askMe(left - 1); });
+            throw e;
+          });
+        };
+        return askMe(2).then(function (j) {
           if (!j || !j.uid) throw {};
           server = true; db = serverDb; uid = j.uid; mode = "cloud"; canWrite = true; srvApproved = !!j.approved;
-          if (!j.admin) { adminToken = null; tokenSet(null); } else tokenSet(adminToken);
+          if (!j.admin) { adminToken = null; tokenSet(null); }
+          else { if (j.token) adminToken = j.token; tokenSet(adminToken); } // 서버가 기간을 늘린 새 토큰으로 교체
         }).catch(function () { server = false; adminToken = null; useLocal(); });
       }
       return Promise.all([window.claude.use("db"), window.claude.use("user")]).then(function (r) {
@@ -153,6 +162,7 @@
       return api("GET", "/api/me").then(function (j) {
         srvApproved = !!j.approved;
         if (!j.admin && adminToken) { adminToken = null; tokenSet(null); }
+        if (j.admin && j.token && adminToken) { adminToken = j.token; tokenSet(adminToken); }
         return j;
       });
     }
