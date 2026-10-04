@@ -25,8 +25,9 @@ window.renderSite = function () {
     ];
     C.navRev = NAV_REV;
   }
-  /* 내용 정리(예전에 저장된 설정에도 적용): Papago 도구 카드 삭제, '일부 기능은 유료 가입…' 문구 삭제 */
-  var CONTENT_REV = 2;
+  /* 내용 정리(예전에 저장된 설정에도 적용). 1: Papago 카드 · 유료 가입 문구 삭제, 2: 출석 체크 문구, 3: 교수자 사진 교체 */
+  var CONTENT_REV = 3;
+  if ((C.contentRev || 0) < 3 && C.instructor && C.instructor.photo === "assets/professor.jpg") C.instructor.photo = "assets/professor.webp"; // 교수자 사진 교체
   if ((C.contentRev || 0) < 2 && C.participate && typeof C.participate.lead === "string") {
     /* 출석 체크 기능을 사이트에서 뺌 → 참여 공간 안내 문구도 맞춤 */
     C.participate.lead = C.participate.lead.replace("수업마다 출석 체크와 과제 제출을", "과제 제출을");
@@ -38,8 +39,8 @@ window.renderSite = function () {
       C.tools.items = (C.tools.items || []).filter(function (t) { return !/^papago$/i.test(String(t.name || "").trim()); });
     }
     if (C.guide) (C.guide.prep || []).forEach(function (p) { p.body = noPaid(p.body); });
-    C.contentRev = CONTENT_REV;
   }
+  C.contentRev = Math.max(C.contentRev || 0, CONTENT_REV);
 
   var esc = function (s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); };
   var $ = function (sel) { return document.querySelector(sel); };

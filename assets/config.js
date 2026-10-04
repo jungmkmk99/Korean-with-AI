@@ -26,7 +26,7 @@ window.SITE_CONFIG = {
 
   /* ---------- 3. 상단 메뉴 (id는 바꾸지 마세요) ---------- */
   navRev: 3,       // 메뉴 구성 버전(바꾸지 마세요)
-  contentRev: 2,   // 내용 정리 버전(바꾸지 마세요)
+  contentRev: 3,   // 내용 정리 버전(바꾸지 마세요)
   nav: [
     { id: "intro",      label: "강의 소개" },
     { id: "curriculum", label: "커리큘럼" },
@@ -403,13 +403,13 @@ window.SITE_CONFIG = {
   },
 
   /* ---------- 12. 교수자 (페이지 맨 아래) ----------
-     photo: 사진 파일을 assets 폴더에 넣고 "assets/professor.jpg"처럼 적으세요.
+     photo: 사진 파일을 assets 폴더에 넣고 "assets/professor.webp"처럼 적으세요.
             비워 두면 이름 첫 글자가 들어간 그림이 표시됩니다. */
   instructor: {
     kicker: "Instructor",
     name: "정미경",
     position: "고려대학교 학부대학",
-    photo: "assets/professor.jpg",
+    photo: "assets/professor.webp",
     bio: "AI를 잘 쓰는 사람을 넘어 AI를 활용하여 한국어 능력을 향상시킬 수 있는 자기주도적 학습자가 되도록 돕는 것이 이 강의의 목표입니다.",
     contacts: [
       { label: "E-mail", value: "jungmk@korea.ac.kr", type: "email" }
