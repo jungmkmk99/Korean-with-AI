@@ -19,6 +19,8 @@ function pgStore(url) {
     // Railway 내부 주소(*.railway.internal)는 SSL 없이, 외부 주소는 SSL로 연결
     ssl: /localhost|127\.0\.0\.1|\.railway\.internal/.test(url) ? false : { rejectUnauthorized: false }
   });
+  // 쉬고 있던 DB 연결이 끊겨도 서버 전체가 꺼지지 않게(처리하지 않으면 프로세스가 종료됨)
+  pool.on("error", (e) => console.error("DB 연결 오류(서버는 계속 실행):", e.message || e));
   const hrs = (h) => String(h);
   return {
     kind: "PostgreSQL",
@@ -207,7 +209,12 @@ app.use(express.json({ limit: "2mb" }));
 const wrap = (fn) => (req, res) => fn(req, res).catch((e) => { console.error(e); res.status(500).json({ code: "server_error" }); });
 const deny = (res) => res.status(403).json({ code: "invalid_argument" });
 const bad = (res) => res.status(400).json({ code: "bad_path" });
-app.use("/api", (req, res, next) => { res.set("Cache-Control", "no-store"); next(); });
+let storeReady = false;
+app.use("/api", (req, res, next) => {
+  res.set("Cache-Control", "no-store");
+  if (!storeReady) return res.status(503).json({ code: "starting" }); // 저장소 준비 전: 사이트는 열리고, 참여 기능만 잠시 대기
+  next();
+});
 
 app.get("/api/me", wrap(async (req, res) => {
   const a = await approval(req), admin = await isAdmin(req);
@@ -297,7 +304,13 @@ app.use("/assets", express.static(path.join(__dirname, "assets"), { maxAge: "1h"
 app.get(["/", "/index.html"], (req, res) => res.set("Cache-Control", "no-cache").sendFile(path.join(__dirname, "index.html")));
 app.use((req, res) => res.status(404).send("Not found"));
 
+/* 시작: 먼저 사이트를 열고, 저장소(DB)는 준비될 때까지 5초마다 다시 시도 (DB 문제로 서버가 꺼졌다 켜지기를 반복하지 않게) */
 const PORT = process.env.PORT || 3000;
-store.init()
-  .then(() => app.listen(PORT, () => console.log("서버 실행 중: 포트 " + PORT + " · 저장소: " + store.kind)))
-  .catch((e) => { console.error("저장소 준비 실패:", e); process.exit(1); });
+process.on("unhandledRejection", (e) => console.error("처리하지 못한 오류(서버는 계속 실행):", e));
+app.listen(PORT, () => console.log("서버 실행 중: 포트 " + PORT + " · 저장소: " + store.kind));
+(function initStore(n) {
+  store.init().then(() => { storeReady = true; console.log("저장소 준비 완료: " + store.kind); }, (e) => {
+    console.error("저장소 준비 실패(" + n + "번째 시도) — 5초 뒤 다시 시도합니다:", (e && e.message) || e);
+    setTimeout(() => initStore(n + 1), 5000);
+  });
+})(1);
