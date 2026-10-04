@@ -25,12 +25,14 @@ window.SITE_CONFIG = {
   },
 
   /* ---------- 3. 상단 메뉴 (id는 바꾸지 마세요) ---------- */
+  navRev: 2,   // 메뉴 구성 버전(바꾸지 마세요)
   nav: [
-    { id: "intro",      label: "프로그램 소개" },
+    { id: "intro",      label: "강의 소개" },
     { id: "curriculum", label: "커리큘럼" },
-    { id: "portfolio",  label: "포트폴리오" },
     { id: "guide",      label: "수강 안내" },
+    { id: "portfolio",  label: "포트폴리오" },
     { id: "faq",        label: "FAQ" },
+    { id: "submitCard", label: "과제 제출" },
     { id: "instructor", label: "교수자" }
   ],
 

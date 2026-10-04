@@ -16,6 +16,16 @@ window.renderSite = function () {
   var C = window.SITE_CONFIG;
   if (!C) { document.body.insertAdjacentHTML("afterbegin", "<p style='padding:20px'>config.js를 불러오지 못했습니다. assets 폴더에 config.js가 있는지 확인하세요.</p>"); return; }
 
+  /* 상단 메뉴 구성이 바뀐 경우(관리자 화면에서 저장해 둔 예전 설정 포함) 새 메뉴로 맞춤 */
+  var NAV_REV = 2;
+  if ((C.navRev || 0) < NAV_REV) {
+    C.nav = [
+      { id: "intro", label: "강의 소개" }, { id: "curriculum", label: "커리큘럼" }, { id: "guide", label: "수강 안내" },
+      { id: "portfolio", label: "포트폴리오" }, { id: "faq", label: "FAQ" }, { id: "submitCard", label: "과제 제출" }, { id: "instructor", label: "교수자" }
+    ];
+    C.navRev = NAV_REV;
+  }
+
   var esc = function (s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); };
   var $ = function (sel) { return document.querySelector(sel); };
   var list = function (arr, fn) { return (arr || []).map(fn).join(""); };
@@ -641,7 +651,9 @@ window.renderSite = function () {
   var header = $("#siteHeader"), toTop = $("#toTop");
   function onScroll() {
     var links = Array.prototype.slice.call(document.querySelectorAll("#navList a"));
-    var targets = (window.SITE_CONFIG.nav || []).map(function (n) { return document.getElementById(n.id); }).filter(Boolean);
+    /* 메뉴 순서와 페이지 순서가 달라도 화면 위치 순서로 현재 메뉴를 고름 */
+    var targets = (window.SITE_CONFIG.nav || []).map(function (n) { return document.getElementById(n.id); }).filter(Boolean)
+      .sort(function (a, b) { return a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1; });
     var y = window.scrollY;
     header.classList.toggle("is-scrolled", y > 8);
     toTop.classList.toggle("is-visible", y > 400);
