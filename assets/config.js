@@ -386,14 +386,6 @@ window.SITE_CONFIG = {
     title: "AI와 함께 *먼저* 말해 보는 한국어"
     // lead를 비워 두면 첫 화면 설명(hero.description)이 들어갑니다.
   },
-  cta: {
-    title: "다음 학기의 *주인공*을 기다립니다",
-    body: "2026학년도 2학기 · 화·목 15:00–16:15 · 교양관 412호 — 신청을 놓치지 마세요!",
-    buttons: [
-      { label: "수강 신청서 작성하기", href: "#apply",    style: "primary" },
-      { label: "강의계획서 보기",     href: "#syllabus", style: "ghost" }
-    ]
-  },
 
   /* ---------- 11. 자주 묻는 질문 ---------- */
   faq: {

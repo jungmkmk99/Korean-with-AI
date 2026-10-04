@@ -580,12 +580,6 @@ window.renderSite = function () {
       return '<details class="card qa"' + (i === 0 ? " open" : "") + '><summary><span class="q">Q</span><span class="q-text">' + esc(it.q) + '</span><span class="plus">' + icon("plus") + '</span></summary><div class="a"><p>' + esc(it.a) + "</p></div></details>";
     }) + "</div></div></section>";
 
-  // 마지막 안내 (손그림 배경)
-  var cta = C.cta || { title: "다음 학기의 *주인공*을 기다립니다", body: C.site.semester + " 수강 신청을 놓치지 마세요!", buttons: [{ label: "수강 신청서 작성하기", href: "#apply", style: "primary" }] };
-  html += '<section class="sec-cta"><div class="cta-bg">' + ART.ctaBg + '</div><div class="wrap narrow cta-inner">' +
-    "<h2>" + rich(cta.title) + "</h2>" + (cta.body ? "<p>" + esc(cta.body) + "</p>" : "") + btns(cta.buttons) +
-  "</div></section>";
-
   $("#main").innerHTML = html;
   CUR.init();
   var sylT = $(".syl-tools");

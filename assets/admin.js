@@ -1206,7 +1206,7 @@
   var SECTIONS = [
     ["site", "사이트 기본 정보"], ["hero", "첫 화면"], ["overview", "강의 한눈에 보기"], ["stats", "숫자 카드"], ["syllabus", "강의계획서"],
     ["strengths", "강의 특징"], ["tools", "실습 AI 도구"], ["curriculum", "커리큘럼과 일정"], ["portfolio", "포트폴리오"], ["guide", "수강 준비물"],
-    ["apply", "수강 신청서"], ["participate", "참여 공간(투표·출석·과제)"], ["intro", "소개 띠"], ["cta", "마지막 안내"], ["faq", "자주 묻는 질문"], ["instructor", "교수자"],
+    ["apply", "수강 신청서"], ["participate", "참여 공간(투표·출석·과제)"], ["intro", "소개 띠"], ["faq", "자주 묻는 질문"], ["instructor", "교수자"],
     ["popup", "첫 방문 안내 팝업"], ["welcome", "환영 효과"], ["nav", "상단 메뉴"], ["theme", "색상"]
   ];
   var KL = {
