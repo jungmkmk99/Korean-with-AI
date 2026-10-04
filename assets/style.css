@@ -1119,3 +1119,6 @@ input:focus, select:focus, textarea:focus { border-color: var(--blossom); box-sh
 .sec-submit .submit-card { padding: 26px 28px; }
 .sec-submit .submit-card .muted a { color: var(--lilac); font-weight: 600; }
 @media (max-width: 520px) { .sec-submit .submit-card { padding: 20px 18px; } }
+/* 강의계획서: 과목 특성 및 수강신청 시 유의사항(카드형) */
+.syl-notes-cards { margin-bottom: 26px; }
+.syl-notes-cards .sub-title { margin-top: 6px; }

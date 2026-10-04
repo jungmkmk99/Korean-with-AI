@@ -744,7 +744,7 @@
 
   var CM_SECTIONS = [
     ["weeks", "주차별 강의 계획"], ["calendar", "월간 수업 달력"], ["portfolio", "우수 과제 포트폴리오"],
-    ["guide", "수강 안내"], ["participate", "참여하기"], ["faq", "자주 묻는 질문"]
+    ["guide", "유의사항 · 수강 신청"], ["participate", "참여하기"], ["faq", "자주 묻는 질문"]
   ];
   var ensure = function (cfg, k, def) { if (!cfg[k]) cfg[k] = def; return cfg[k]; };
 
@@ -759,7 +759,7 @@
     });
     $("#cmView").addEventListener("click", function (e) {
       e.preventDefault();
-      var target = { weeks: "curriculum", calendar: "curriculum", portfolio: "portfolio", guide: "guide", participate: "participate", faq: "faq" }[cmSection];
+      var target = { weeks: "curriculum", calendar: "curriculum", portfolio: "portfolio", guide: "syllabus", participate: "participate", faq: "faq" }[cmSection];
       closePanel();
       var el = document.getElementById(target); if (el) { if (cmSection === "calendar") el = el.querySelector(".cal-wrap") || el; el.scrollIntoView({ block: "start" }); }
     });
@@ -885,18 +885,22 @@
       ] });
   }
 
-  /* 4. 수강 안내 */
+  /* 4. 과목 특성 · 수강신청 유의사항(강의계획서 안 카드) + 수강 신청 구역 */
   function cmGuide(box, C) {
-    cmSettings(box, { key: "guide", label: "구역 제목 · 안내", fields: [
-        { key: "title", label: "제목", type: "text", required: true },
-        { key: "lead", label: "안내 문구", type: "textarea" },
-        { key: "prepTitle", label: "준비물 제목", type: "text" }
-      ], get: function (c) { return c.guide; }, set: function (c, v) { Object.assign(ensure(c, "guide", { prep: [] }), v); } });
-    cmList(box, { key: "prep", label: "수강 준비물", itemLabel: "준비물",
-      getList: function (c) { return (c.guide || {}).prep || []; }, setList: function (c, l) { ensure(c, "guide", {}).prep = l; },
-      itemTitle: function (p) { return p.title || ""; }, itemSub: function (p) { return esc(p.body || ""); },
+    cmSettings(box, { key: "notesHead", label: "유의사항 제목", fields: [
+        { key: "notesTitle", label: "제목", type: "text", required: true, wide: true }
+      ], get: function (c) { return c.syllabus; }, set: function (c, v) { Object.assign(ensure(c, "syllabus", {}), v); } });
+    cmList(box, { key: "notes", label: "과목 특성 및 수강신청 시 유의사항", itemLabel: "항목",
+      note: "강의계획서 안에 체크 아이콘 카드로 표시됩니다.",
+      getList: function (c) { return ((c.syllabus || {}).notes || []).map(function (n) { return typeof n === "string" ? { title: "", body: n } : n; }); },
+      setList: function (c, l) { ensure(c, "syllabus", {}).notes = l; },
+      itemTitle: function (n) { return n.title || String(n.body || "").slice(0, 30); }, itemSub: function (n) { return esc(n.body || ""); },
       blank: function () { return { title: "", body: "" }; },
-      fields: [{ key: "title", label: "준비물", type: "text", required: true }, { key: "body", label: "설명", type: "textarea" }] });
+      fields: [{ key: "title", label: "제목", type: "text", required: true }, { key: "body", label: "설명", type: "textarea", required: true }] });
+    cmSettings(box, { key: "guide", label: "수강 신청 구역 제목", fields: [
+        { key: "title", label: "제목", type: "text", required: true },
+        { key: "lead", label: "안내 문구", type: "textarea" }
+      ], get: function (c) { return c.guide; }, set: function (c, v) { Object.assign(ensure(c, "guide", {}), v); } });
     cmSettings(box, { key: "apply", label: "수강 신청서 안내 문구", fields: [
         { key: "title", label: "신청서 제목", type: "text", required: true },
         { key: "lead", label: "안내 문구", type: "textarea" },
@@ -1204,7 +1208,7 @@
   /* ---- 사이트 내용 편집 ---- */
   var SECTIONS = [
     ["site", "사이트 기본 정보"], ["hero", "첫 화면"], ["overview", "강의 한눈에 보기"], ["stats", "숫자 카드"], ["syllabus", "강의계획서"],
-    ["strengths", "강의 특징"], ["tools", "실습 AI 도구"], ["curriculum", "커리큘럼과 일정"], ["portfolio", "포트폴리오"], ["guide", "수강 준비물"],
+    ["strengths", "강의 특징"], ["tools", "실습 AI 도구"], ["curriculum", "커리큘럼과 일정"], ["portfolio", "포트폴리오"], ["guide", "수강 신청 구역"],
     ["apply", "수강 신청서"], ["participate", "참여 공간(투표·출석·과제)"], ["intro", "소개 띠"], ["faq", "자주 묻는 질문"], ["instructor", "교수자"],
     ["popup", "첫 방문 안내 팝업"], ["welcome", "환영 효과"], ["nav", "상단 메뉴"], ["theme", "색상"]
   ];

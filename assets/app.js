@@ -17,16 +17,22 @@ window.renderSite = function () {
   if (!C) { document.body.insertAdjacentHTML("afterbegin", "<p style='padding:20px'>config.js를 불러오지 못했습니다. assets 폴더에 config.js가 있는지 확인하세요.</p>"); return; }
 
   /* 상단 메뉴 구성이 바뀐 경우(관리자 화면에서 저장해 둔 예전 설정 포함) 새 메뉴로 맞춤 */
-  var NAV_REV = 3;
+  var NAV_REV = 4;
   if ((C.navRev || 0) < NAV_REV) {
     C.nav = [
-      { id: "intro", label: "강의 소개" }, { id: "curriculum", label: "커리큘럼" }, { id: "guide", label: "수강 안내" },
+      { id: "intro", label: "강의 소개" }, { id: "curriculum", label: "커리큘럼" },
       { id: "portfolio", label: "포트폴리오" }, { id: "faq", label: "FAQ" }, { id: "submit", label: "과제 제출" }, { id: "instructor", label: "교수자" }
     ];
     C.navRev = NAV_REV;
   }
-  /* 내용 정리(예전에 저장된 설정에도 적용). 1: Papago 카드 · 유료 가입 문구 삭제, 2: 출석 체크 문구, 3: 교수자 사진 교체 */
-  var CONTENT_REV = 3;
+  /* 내용 정리(예전에 저장된 설정에도 적용). 1: Papago 카드 · 유료 가입 문구 삭제, 2: 출석 체크 문구, 3: 교수자 사진 교체,
+     4: 유의사항 + 수강 준비물을 카드형 '과목 특성 및 수강신청 시 유의사항'으로 합치고 '수강 안내' 구역을 '수강 신청'으로 */
+  var CONTENT_REV = 4;
+  if ((C.contentRev || 0) < 4) {
+    var FN = ((window.SITE_CONFIG_FILE || {}).syllabus || {}).notes;
+    if (C.syllabus && (C.syllabus.notes || []).some(function (n) { return typeof n === "string"; }) && FN && FN.length && typeof FN[0] === "object") C.syllabus.notes = JSON.parse(JSON.stringify(FN));
+    if (C.guide && (C.guide.prep || C.guide.title === "수강 *안내*" || C.guide.title === "수강 안내")) C.guide = { kicker: "Application", title: "수강 *신청*" };
+  }
   if ((C.contentRev || 0) < 3 && C.instructor && C.instructor.photo === "assets/professor.jpg") C.instructor.photo = "assets/professor.webp"; // 교수자 사진 교체
   if ((C.contentRev || 0) < 2 && C.participate && typeof C.participate.lead === "string") {
     /* 출석 체크 기능을 사이트에서 뺌 → 참여 공간 안내 문구도 맞춤 */
@@ -485,7 +491,11 @@ window.renderSite = function () {
     };
     return '<section class="sec-syllabus" id="syllabus"><div class="wrap">' + head(S) +
       (S.info && S.info.length ? '<dl class="syl-info">' + list(S.info, function (i) { return "<div><dt>" + esc(i.label) + "</dt><dd>" + esc(i.value) + "</dd></div>"; }) + "</dl>" : "") +
-      (S.notes && S.notes.length ? '<div class="syl-notes"><h3><span aria-hidden="true">★★★</span> ' + esc(S.notesTitle) + ' <span aria-hidden="true">★★★</span></h3><ol>' + list(S.notes, function (t) { return "<li>" + esc(t) + "</li>"; }) + "</ol></div>" : "") +
+      /* 과목 특성 및 수강신청 시 유의사항: 카드형 (체크 아이콘 + 제목 + 설명) */
+      (S.notes && S.notes.length ? '<div class="syl-notes-cards"><h3 class="sub-title">' + esc(S.notesTitle) + '</h3><ul class="prep">' + list(S.notes, function (n) {
+        var t = typeof n === "string" ? "" : n.title, b = typeof n === "string" ? n : n.body;
+        return '<li class="card"><span class="check">' + icon("check") + "</span><div>" + (t ? "<h4>" + esc(t) + "</h4>" : "") + "<p>" + esc(b) + "</p></div></li>";
+      }) + "</ul></div>" : "") +
       /* 강의 개요 · 수업 목표 · 평가 방법 · 성적 산출 기준 · 출석 관련 규정 · 과제 안내: 눌러서 펼치는 드롭다운 */
       '<div class="week-tools syl-tools"><button type="button" class="text-btn" data-syl="open">모두 펼치기</button><button type="button" class="text-btn" data-syl="close">모두 접기</button></div>' +
       '<div class="syl-accs">' +
@@ -555,13 +565,9 @@ window.renderSite = function () {
   // 포트폴리오
   html += renderPortfolio(C.portfolio);
 
-  // 수강 안내: 준비물
-  var g = C.guide;
-  html += '<section id="guide"><div class="wrap">' + head(g) +
-    '<h3 class="sub-title">' + esc(g.prepTitle) + "</h3>" +
-    '<ul class="prep">' + list(g.prep, function (p) {
-      return '<li class="card"><span class="check">' + icon("check") + "</span><div><h4>" + esc(p.title) + "</h4><p>" + esc(p.body) + "</p></div></li>";
-    }) + "</ul>" +
+  // 수강 신청 (신청서는 participate.js가 채움)
+  var g = C.guide || { kicker: "Application", title: "수강 *신청*" };
+  html += '<section id="guide" class="sec-apply"><div class="wrap">' + head(g) +
     '<div id="apply" class="apply-block"></div>' +
   "</div></section>";
 
