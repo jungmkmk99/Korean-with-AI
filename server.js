@@ -90,8 +90,21 @@ function fileStore(dir) {
   };
 }
 
-const store = process.env.DATABASE_URL
-  ? pgStore(process.env.DATABASE_URL)
+/* DATABASE_URL 정리: 복사해 붙일 때 들어간 앞뒤 공백 · 따옴표, DB 이름 끝 공백(예: "railway  ")을 없앰 */
+function cleanDbUrl(raw) {
+  const s = String(raw || "").trim().replace(/^["']+|["']+$/g, "").trim();
+  if (!s) return "";
+  try {
+    const u = new URL(s);
+    const db = decodeURIComponent(u.pathname.replace(/^\/+/, "")).trim();
+    u.pathname = "/" + encodeURIComponent(db);
+    console.log("DB 연결 대상: " + u.hostname + (u.port ? ":" + u.port : "") + " / 데이터베이스 '" + db + "'");
+    return u.toString();
+  } catch (e) { return s; }
+}
+const DB_URL = cleanDbUrl(process.env.DATABASE_URL);
+const store = DB_URL
+  ? pgStore(DB_URL)
   : fileStore(process.env.DATA_DIR || path.join(__dirname, "data"));
 
 /* ================= 경로 · 권한 ================= */
