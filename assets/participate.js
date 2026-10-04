@@ -24,12 +24,86 @@
     var subs = [];
     function notify() { subs.forEach(function (f) { f(); }); }
 
+    /* 배포 서버(Railway + PostgreSQL)의 저장 API를 claude 저장소와 같은 모양으로 감쌈 */
+    var server = false, adminToken = null, watchers = [], pollTimer = null, srvApproved = false;
+    /* 관리자 로그인 토큰은 이 브라우저에 보관 → 새로고침하거나 창을 닫았다 열어도 로그인 유지(서버 기준 30일) */
+    function tokenGet() { var t = lsGet("adminToken"); if (!t) { try { t = sessionStorage.getItem("akd:adminToken"); } catch (e) {} } return t || null; }
+    function tokenSet(v) { if (v) lsSet("adminToken", v); else lsDel("adminToken"); try { sessionStorage.removeItem("akd:adminToken"); } catch (e) {} }
+    function clientKey() {
+      var k = lsGet("clientKey");
+      if (!k) {
+        var a = new Uint8Array(24); (window.crypto || window.msCrypto).getRandomValues(a);
+        k = Array.prototype.map.call(a, function (b) { return ("0" + b.toString(16)).slice(-2); }).join("");
+        lsSet("clientKey", k);
+      }
+      return k;
+    }
+    function api(method, url, body) {
+      var headers = { "X-Client-Key": clientKey() };
+      if (adminToken) headers["X-Admin-Token"] = adminToken;
+      if (body !== undefined) headers["Content-Type"] = "application/json";
+      return fetch(url, { method: method, headers: headers, body: body === undefined ? undefined : JSON.stringify(body), cache: "no-store" }).then(function (r) {
+        return r.json().catch(function () { return {}; }).then(function (j) {
+          if (r.ok) return j;
+          throw { code: r.status === 413 ? "quota_exceeded" : (j.code || "http_" + r.status), status: r.status };
+        });
+      });
+    }
+    function pollAll() { watchers.forEach(function (w) { w.tick(); }); }
+    function watch(fetcher, key, cb, err) {
+      var last = null, w = { tick: function () {
+        fetcher().then(function (v) { var s = key(v); if (s !== last) { last = s; cb(v); } }, function (e) { if (err) err(e); });
+      } };
+      watchers.push(w); w.tick();
+      if (!pollTimer) pollTimer = setInterval(pollAll, 5000);
+      return function () { watchers = watchers.filter(function (x) { return x !== w; }); };
+    }
+    var serverDb = {
+      doc: function (path) {
+        var q = "?path=" + encodeURIComponent(path);
+        var get = function () { return api("GET", "/api/doc" + q).then(function (j) { return { exists: !!j.exists, data: function () { return j.data; } }; }); };
+        return {
+          get: get,
+          set: function (data) { return api("PUT", "/api/doc" + q, { data: data }).then(pollAll); },
+          delete: function () { return api("DELETE", "/api/doc" + q).then(pollAll); },
+          onSnapshot: function (cb, err) { return watch(get, function (s) { return JSON.stringify([s.exists, s.data()]); }, cb, err); }
+        };
+      },
+      collection: function (col) {
+        var get = function () {
+          return api("GET", "/api/col?path=" + encodeURIComponent(col)).then(function (rows) {
+            return { docs: rows.map(function (x) { return { id: x.id, data: function () { return x.data; } }; }) };
+          });
+        };
+        return { get: get, onSnapshot: function (cb, err) {
+          return watch(get, function (q) { return JSON.stringify(q.docs.map(function (d) { return [d.id, d.data()]; })); }, cb, err);
+        } };
+      }
+    };
+    function adminLogin(pw) {
+      if (!server) return Promise.resolve();
+      return api("POST", "/api/admin/login", { password: pw }).then(function (j) { adminToken = j.token; tokenSet(adminToken); });
+    }
+    function adminLogout() {
+      if (!server || !adminToken) return Promise.resolve();
+      var p = api("POST", "/api/admin/logout", {}).catch(function () {});
+      adminToken = null; tokenSet(null); return p;
+    }
+
     function init() {
       var useLocal = function () {
         mode = "local";
         uid = lsGet("uid"); if (!uid) { uid = "local-" + Math.random().toString(36).slice(2, 10); lsSet("uid", uid); }
       };
-      if (!(window.claude && typeof window.claude.use === "function")) { useLocal(); return Promise.resolve(); }
+      if (!(window.claude && typeof window.claude.use === "function")) {
+        if (location.protocol !== "http:" && location.protocol !== "https:") { useLocal(); return Promise.resolve(); }
+        adminToken = tokenGet();
+        return api("GET", "/api/me").then(function (j) {
+          if (!j || !j.uid) throw {};
+          server = true; db = serverDb; uid = j.uid; mode = "cloud"; canWrite = true; srvApproved = !!j.approved;
+          if (!j.admin) { adminToken = null; tokenSet(null); } else tokenSet(adminToken);
+        }).catch(function () { server = false; adminToken = null; useLocal(); });
+      }
       return Promise.all([window.claude.use("db"), window.claude.use("user")]).then(function (r) {
         if (!r[0] || !r[1]) { mode = "offline"; return; }
         db = r[0];
@@ -73,17 +147,30 @@
       };
       subs.push(f); f(); return function () {};
     }
+    /* 서버에 내 승인 상태를 다시 물어봄 */
+    function refreshMe() {
+      if (!server) return Promise.resolve(null);
+      return api("GET", "/api/me").then(function (j) {
+        srvApproved = !!j.approved;
+        if (!j.admin && adminToken) { adminToken = null; tokenSet(null); }
+        return j;
+      });
+    }
+    /* 지금 적용할 사이트 설정(승인 전이면 주차별 학습 내용이 빠진 것) */
+    function fetchConfig() { return server ? api("GET", "/api/config") : Promise.reject({ code: "no_server" }); }
     return {
       init: init, get: get, set: set, del: del, list: list, watchDoc: watchDoc, watchCollection: watchCollection,
+      refreshMe: refreshMe, fetchConfig: fetchConfig, srvApproved: function () { return srvApproved; },
       mode: function () { return mode; }, uid: function () { return uid; }, canWrite: function () { return canWrite; },
-      canEdit: function () { return mode === "local" || canEdit; }
+      canEdit: function () { return mode === "local" || (server ? !!adminToken : canEdit); },
+      isServer: function () { return server; }, adminLogin: adminLogin, adminLogout: adminLogout
     };
   })();
 
   /* 체험 모드·권한 안내 */
   function modeNote() {
     var m = Store.mode();
-    if (m === "local") return '<p class="mode-note">' + icon("pending") + "<span><b>체험 모드</b> · 컴퓨터에서 파일을 직접 열었기 때문에 참여 내용이 이 브라우저에만 저장됩니다. claude.ai에 게시된 페이지에서는 모든 수강생의 참여 내용이 모입니다.</span></p>";
+    if (m === "local") return '<p class="mode-note">' + icon("pending") + "<span><b>체험 모드</b> · 저장 서버에 연결되지 않아 참여 내용이 이 브라우저에만 저장됩니다. 배포된 사이트에서는 모든 수강생의 참여 내용이 데이터베이스에 모입니다.</span></p>";
     if (m === "offline") return '<p class="mode-note warn">' + icon("pending") + "<span>참여 기능을 쓰려면 claude.ai에 로그인한 상태로 이 페이지를 열어 주세요.</span></p>";
     if (m === "cloud" && !Store.canWrite()) return '<p class="mode-note warn">' + icon("pending") + "<span>이 페이지를 보기 권한으로 열었습니다. 참여하려면 교수자에게 참여 권한을 요청해 주세요.</span></p>";
     return "";
@@ -116,13 +203,39 @@
 
   var me = null; // 로그인 정보 {name, studentId}
 
+  /* ================= 접근 권한 (관리자 승인) =================
+     승인된 수강생과 관리자만 '주차별 학습' 내용을 봅니다. 배포 서버에서는 서버가 승인 여부를 확인해 내용 자체를 보내지 않습니다. */
+  var ACC = window.SITE_ACCESS = window.SITE_ACCESS || { known: false, admin: false, approved: false };
+  var accTimer = null, accKey = "";
+  var nm = function (s) { return String(s || "").replace(/\s+/g, ""); };
+  var sees = function () { return !!(ACC.admin || ACC.approved); };
+  function rerender() { if (window.SITE_RERENDER) window.SITE_RERENDER(); else { if (window.renderSite) window.renderSite(); redraw(); } }
+  function refreshAccess(initial) {
+    var before = sees();
+    var ask = Store.isServer()
+      ? (initial ? Promise.resolve(Store.srvApproved()) : Store.refreshMe().then(function (j) { return !!(j && j.approved); }, function () { return Store.srvApproved(); }))
+      : (me ? Store.get("approvals/" + me.studentId).then(function (a) { return !!a && (!a.name || nm(a.name) === nm(me.name)); }, function () { return false; }) : Promise.resolve(false));
+    return ask.then(function (ok) {
+      ACC.approved = ok; ACC.known = true; ACC.loggedIn = !!me; ACC.name = me ? me.name : ""; ACC.pending = !!me && !ok;
+      clearTimeout(accTimer);
+      if (ACC.pending && Store.isServer()) accTimer = setTimeout(function () { refreshAccess(false); }, 30000); // 승인되면 30초 안에 자동으로 열림
+      var key = JSON.stringify([ACC.approved, ACC.loggedIn, ACC.name, ACC.admin]);
+      if (!initial && before !== sees() && Store.isServer() && window.SITE_LOAD_CONFIG) { accKey = key; return window.SITE_LOAD_CONFIG(); }
+      if (key !== accKey || initial) { accKey = key; rerender(); }
+    });
+  }
+  window.SITE_ACCESS_REFRESH = function () { return refreshAccess(false); };
+
   /* ================= 로그인 ================= */
   function drawLogin() {
     var el = $("#loginCard");
     if (me) {
       el.innerHTML = '<div class="login-done"><span class="avatar">' + esc(me.name.charAt(0)) + '</span><div><span class="kicker">로그인됨</span><h3>' + esc(me.name) + ' 님</h3><p class="muted">학번 ' + esc(me.studentId) + '</p></div></div>' +
+        (ACC.known && !ACC.admin ? (ACC.approved
+          ? '<p class="appr ok"><span class="chip now">승인됨</span> 주차별 학습 내용을 볼 수 있습니다.</p>'
+          : '<p class="appr"><span class="chip past">승인 대기</span> 교수자가 승인하면 주차별 학습 내용이 열립니다.</p>') : "") +
         '<button type="button" class="text-btn" id="relogin">다른 학번으로 로그인</button>';
-      $("#relogin").addEventListener("click", function () { me = null; drawLogin(); drawAttend(); drawSubmit(); });
+      $("#relogin").addEventListener("click", function () { me = null; drawLogin(); drawAttend(); drawSubmit(); refreshAccess(false); });
       return;
     }
     el.innerHTML = '<span class="kicker">Login</span><h3>수강생 로그인</h3><p class="muted">이름과 학번을 입력하면 출석 체크와 과제 제출을 할 수 있습니다.</p>' +
@@ -139,7 +252,7 @@
       if (miss.length) { $("#lgErr").textContent = miss.join(", ") + "을(를) 입력해 주세요."; (n ? $("#lgId") : $("#lgName")).focus(); return; }
       if (!/^\d{10}$/.test(id)) { $("#lgErr").textContent = "학번은 숫자 10자리로 적어 주세요."; $("#lgId").focus(); return; }
       var data = { name: n, studentId: id, at: new Date().toISOString() };
-      Store.set("roster/" + Store.uid(), data).then(function () { me = data; drawLogin(); drawAttend(); drawSubmit(); prefillApply(); },
+      Store.set("roster/" + Store.uid(), data).then(function () { me = data; drawLogin(); drawAttend(); drawSubmit(); prefillApply(); refreshAccess(false); },
         function (er) { $("#lgErr").textContent = failMsg(er); });
     });
   }
@@ -232,6 +345,7 @@
   function fmtSize(b) { return b > 1048576 ? (b / 1048576).toFixed(1) + "MB" : Math.max(1, Math.round(b / 1024)) + "KB"; }
   function drawSubmit() {
     var el = $("#submitCard"), S = P.submission || {};
+    if (R.locked) { el.innerHTML = '<span class="kicker">Assignment</span><h3>과제 제출</h3><p class="muted">관리자 승인을 받으면 과제를 확인하고 제출할 수 있습니다.</p>'; return; }
     if (!assignWeeks.length) { el.innerHTML = '<h3>과제 제출</h3><p class="muted">등록된 과제가 없습니다.</p>'; return; }
     if (selWeek == null) selWeek = defaultWeek();
     var w = assignWeeks.filter(function (x) { return x.n === selWeek; })[0] || assignWeeks[0];
@@ -405,7 +519,10 @@
       v.submittedAt = new Date().toISOString();
       Store.set("applications/" + Store.uid(), v).then(function () {
         myApp = v; editing = false; drawApply();
-        if (!me) { me = { name: v.name, studentId: v.studentId }; Store.set("roster/" + Store.uid(), { name: v.name, studentId: v.studentId, at: v.submittedAt }); drawLogin(); drawAttend(); drawSubmit(); }
+        /* 신청서를 내면 같은 이름·학번으로 로그인 기록도 남겨 관리자 '강의 관리'에 바로 보이게 함 */
+        me = { name: v.name, studentId: v.studentId };
+        Store.set("roster/" + Store.uid(), { name: v.name, studentId: v.studentId, at: v.submittedAt }).catch(function () {}).then(function () { refreshAccess(false); });
+        drawLogin(); drawAttend(); drawSubmit();
         $("#apply").scrollIntoView({ block: "start" });
       }, function (er) { btn.disabled = false; btn.textContent = "신청서 제출하기"; $("#apErr").textContent = failMsg(er); });
     });
@@ -450,9 +567,20 @@
     ]).then(function (r) {
       if (r[0]) me = { name: r[0].name, studentId: r[0].studentId };
       myApp = r[1]; attend = (r[2] && r[2].records) || {}; subs = (r[3] && r[3].items) || {};
+      /* 예전 배포판(저장 서버 없음)에서 낸 신청서는 이 브라우저에만 남아 있음 → 서버에 한 번 옮겨 관리자 화면에 보이게 함 */
+      if (Store.isServer() && !myApp) {
+        var legacy = function (col) { try { var l = JSON.parse(localStorage.getItem("akd:uid") || "null"); var v = l && localStorage.getItem("akd:" + col + "/" + l); return v ? JSON.parse(v) : null; } catch (e) { return null; } };
+        var oldApp = legacy("applications");
+        if (oldApp && oldApp.studentId) {
+          var ro = legacy("roster") || { name: oldApp.name, studentId: oldApp.studentId, at: oldApp.submittedAt };
+          myApp = oldApp; me = me || { name: ro.name, studentId: ro.studentId };
+          return Promise.all([Store.set("applications/" + uid, oldApp), r[0] ? null : Store.set("roster/" + uid, ro)]).catch(function () {});
+        }
+      }
     }, function () {}).then(function () {
       drawLogin(); drawAttend(); drawSubmit(); drawApply();
       bindPoll();
+      refreshAccess(true);
       Store.watchCollection("poll", function (list) {
         votes = list;
         var mine = list.filter(function (v) { return v.id === uid; })[0];

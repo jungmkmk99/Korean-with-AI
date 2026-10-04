@@ -4,6 +4,7 @@
 (function () {
   if (!window.SITE_CONFIG || !window.SITE_STORE) return;
   var Store = window.SITE_STORE;
+  var SITE_VERSION = (document.querySelector('meta[name="version"]') || {}).content || "";
   var $ = function (s, el) { return (el || document).querySelector(s); };
   var $$ = function (s, el) { return Array.prototype.slice.call((el || document).querySelectorAll(s)); };
   var esc = function (s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); };
@@ -93,11 +94,19 @@
   }
 
   /* ================= 설정 저장 (공유 저장소 또는 이 브라우저) ================= */
-  function applyConfig(cfg, persist) {
-    window.SITE_CONFIG = cfg;
+  /* 화면 전체 다시 그리기 (설정·로그인·승인 상태가 바뀌었을 때) */
+  function rerender() {
     if (window.renderSite) window.renderSite();
     if (window.SITE_PART) window.SITE_PART.redraw();
     drawLockState();
+    drawNotices();
+  }
+  window.SITE_RERENDER = rerender;
+  function applyConfig(cfg, persist) {
+    /* 승인 전 사본(주차별 학습 내용이 빠진 설정)은 절대 저장하지 않음 */
+    if (persist && ((cfg.curriculum || {}).weeks || []).some(function (w) { return w && w.locked; })) return Promise.reject({ code: "locked_weeks" });
+    window.SITE_CONFIG = cfg;
+    rerender();
     loadNotices();
     if (!persist) return Promise.resolve();
     var json = JSON.stringify(cfg);
@@ -125,6 +134,23 @@
     return null;
   }
 
+  /* 지금 적용할 설정 불러오기: 배포 서버는 권한에 맞는 설정(승인 전이면 주차별 학습 내용 제외)을 보내 줌 */
+  function loadConfig() {
+    if (Store.isServer()) return Store.fetchConfig().then(function (j) {
+      var cfg = JSON.parse(j.json);
+      window.SITE_CONFIG_SOURCE = j.source === "shared" ? "shared" : "";
+      if (j.source === "file" && j.full) window.SITE_CONFIG_FILE = clone(cfg);
+      return applyConfig(cfg, false);
+    }).catch(function () { rerender(); });
+    if (Store.mode() === "cloud") return Store.get("site/config").then(function (d) {
+      if (d && d.json) { window.SITE_CONFIG_SOURCE = "shared"; return applyConfig(JSON.parse(d.json), false); }
+      rerender();
+    }).catch(function () { rerender(); });
+    rerender();
+    return Promise.resolve();
+  }
+  window.SITE_LOAD_CONFIG = loadConfig;
+
   /* ================= 공지사항 (방문자 화면) ================= */
   var notices = [], noticeUnsub = null, showAllNotices = false;
   function drawNotices() {
@@ -149,8 +175,19 @@
   }
 
   /* ================= 자물쇠 · 로그인 ================= */
-  var isAdmin = false;
-  try { isAdmin = sessionStorage.getItem("akd:admin") === (window.SITE_CONFIG.admin || {}).passwordHash; } catch (e) {}
+  /* 관리자 로그인은 이 브라우저에 기억 → 새로고침해도 유지 (배포 서버에서는 서버 세션이 살아 있는 동안) */
+  function lsG(k) { try { return localStorage.getItem("akd:" + k); } catch (e) { return null; } }
+  function lsS(k, v) { try { if (v == null) localStorage.removeItem("akd:" + k); else localStorage.setItem("akd:" + k, v); } catch (e) {} }
+  var curHash = function () { return (window.SITE_CONFIG.admin || {}).passwordHash || ""; };
+  var isAdmin = !!curHash() && lsG("admin") === curHash();
+  function setAdmin(on) {
+    isAdmin = !!on;
+    lsS("admin", isAdmin ? curHash() : null);
+    if (!isAdmin) lsS("adminPanel", null);
+    (window.SITE_ACCESS || {}).admin = isAdmin;
+    drawLockState();
+  }
+  (window.SITE_ACCESS || {}).admin = isAdmin;
   function drawLockState() {
     var b = $("#lockBtn"); if (!b) return;
     b.classList.toggle("on", isAdmin);
@@ -186,9 +223,15 @@
       if (!pw.value) { err.textContent = "비밀번호를 입력해 주세요."; return; }
       var A = window.SITE_CONFIG.admin || {};
       if (A.passwordHash && hashPw(A.salt || "", pw.value) === A.passwordHash) {
-        isAdmin = true; fails = 0;
-        try { sessionStorage.setItem("akd:admin", A.passwordHash); } catch (x) {}
-        drawLockState(); back.remove(); document.removeEventListener("keydown", onKey); openPanel();
+        // 배포 서버에서는 서버도 비밀번호를 확인해야 수강생 기록을 읽을 수 있음
+        Store.adminLogin(pw.value).then(function () {
+          fails = 0; setAdmin(true);
+          back.remove(); document.removeEventListener("keydown", onKey);
+          /* 관리자 권한으로 전체 설정(주차별 학습 포함)을 다시 받은 뒤 관리자 화면 열기 */
+          loadConfig().then(openPanel, openPanel);
+        }, function (er) {
+          err.textContent = er && er.code === "locked" ? "잠시 뒤에 다시 시도해 주세요." : "서버에서 관리자 확인을 하지 못했습니다. 잠시 후 다시 시도해 주세요.";
+        });
       } else {
         fails++; pw.select();
         if (fails >= 5) { lockUntil = now + 30000; fails = 0; err.textContent = "비밀번호가 5번 틀려 30초 동안 입력할 수 없습니다."; }
@@ -202,18 +245,18 @@
   function loadAll() {
     loading = Promise.all([
       Store.list("roster"), Store.list("applications"), Store.list("attendance"), Store.list("submissions"),
-      Store.list("poll"), Store.get("admin/students")
+      Store.list("poll"), Store.list("approvals")
     ]).then(function (r) {
-      D = { roster: r[0], apps: r[1], attend: r[2], subs: r[3], poll: r[4], students: (r[5] && r[5].list) || [], at: new Date() };
+      var ap = {}; (r[5] || []).forEach(function (a) { if (a.data) ap[a.id] = a.data; });
+      D = { roster: r[0], apps: r[1], attend: r[2], subs: r[3], poll: r[4], approvals: ap, at: new Date() };
       return D;
-    }, function () { D = { roster: [], apps: [], attend: [], subs: [], poll: [], students: [], at: new Date(), error: true }; return D; });
+    }, function () { D = { roster: [], apps: [], attend: [], subs: [], poll: [], approvals: {}, at: new Date(), error: true }; return D; });
     return loading;
   }
-  /* 학번 기준으로 한 사람의 정보를 합칩니다. */
+  /* 학번 기준으로 한 사람의 정보를 합칩니다. (수강 신청서 · 로그인 · 출석 · 과제 · 승인) */
   function people() {
     var map = {}, order = [];
-    var get = function (id) { if (!map[id]) { map[id] = { studentId: id, name: "", dept: "", listed: false, uids: [] }; order.push(id); } return map[id]; };
-    D.students.forEach(function (s) { var p = get(s.studentId); p.listed = true; p.name = s.name; p.dept = s.dept || ""; });
+    var get = function (id) { id = String(id); if (!map[id]) { map[id] = { studentId: id, name: "", dept: "", approved: false, uids: [] }; order.push(id); } return map[id]; };
     D.roster.forEach(function (r) { if (!r.data || !r.data.studentId) return; var p = get(r.data.studentId); p.loggedIn = true; p.name = p.name || r.data.name; if (p.uids.indexOf(r.id) < 0) p.uids.push(r.id); });
     D.apps.forEach(function (a) { if (!a.data || !a.data.studentId) return; var p = get(a.data.studentId); p.app = a.data; p.name = p.name || a.data.name; p.dept = p.dept || a.data.dept || ""; });
     D.attend.forEach(function (a) { if (!a.data || !a.data.studentId) return; var p = get(a.data.studentId); p.att = Object.assign(p.att || {}, a.data.records || {}); p.name = p.name || a.data.name; });
@@ -222,29 +265,33 @@
       p.subs = p.subs || {};
       Object.keys(s.data.items || {}).forEach(function (k) { var it = Object.assign({ uid: s.id }, s.data.items[k]); if (!p.subs[k] || p.subs[k].at < it.at) p.subs[k] = it; });
     });
-    return order.map(function (k) { return map[k]; }).sort(function (a, b) { return a.studentId.localeCompare(b.studentId); });
+    Object.keys(D.approvals).forEach(function (id) { var p = get(id); p.approved = true; p.approvedAt = D.approvals[id].at; p.name = p.name || D.approvals[id].name || ""; });
+    return order.map(function (k) { return map[k]; }).sort(function (a, b) { return (a.approved ? 1 : 0) - (b.approved ? 1 : 0) || a.studentId.localeCompare(b.studentId); });
   }
   function allSessions() { return RT().sessions || []; }
   function heldSessions() { var t = new Date(); t.setHours(23, 59, 59, 0); return allSessions().filter(function (s) { return !s.holiday && s.date <= t; }); }
   var failN = function () { return ((window.SITE_CONFIG.participate || {}).attendance || {}).failAbsences || 0; };
-  var listedTag = function (p) { return p.listed ? '<span class="chip task">명단</span>' : '<span class="chip past" title="등록한 수강생 명단에 없는 학번">명단 외</span>'; };
+  var apprTag = function (p) { return p.approved ? "" : ' <span class="chip past" title="관리자 승인 전">미승인</span>'; };
+  /* 출석·과제 비율의 기준 인원: 승인된 수강생(아직 없으면 참여자 전체) */
+  var baseOf = function (ps) { var a = ps.filter(function (p) { return p.approved; }); return a.length ? a : ps; };
 
   /* ================= 패널 ================= */
   var panelOpen = false, tab = "dash", draft = null, edSection = "site", dirty = false;
   var TABS = [
-    ["dash", "한눈에 보기"], ["content", "섹션 관리"], ["notice", "공지 올리기"], ["students", "수강생 명단"], ["apply", "수강 신청 내역"],
-    ["attend", "출석 현황"], ["assign", "과제 제출 현황"], ["edit", "사이트 내용 편집"], ["settings", "설정 파일 · 비밀번호"]
+    ["dash", "한눈에 보기"], ["content", "섹션 관리"], ["notice", "공지 올리기"], ["course", "강의 관리"], ["apply", "수강 신청 내역"],
+    ["edit", "사이트 내용 편집"], ["settings", "설정 파일 · 비밀번호"]
   ];
+  if (TABS.some(function (t) { return t[0] === lsG("adminTab"); })) tab = lsG("adminTab");
   function openPanel() {
-    if (panelOpen) return;
-    panelOpen = true;
+    if (panelOpen || !isAdmin) return;
+    panelOpen = true; lsS("adminPanel", "1");
     draft = clone(window.SITE_CONFIG); dirty = false;
     var el = document.createElement("div");
     el.className = "admin"; el.id = "adminPanel";
     el.setAttribute("role", "dialog"); el.setAttribute("aria-modal", "true"); el.setAttribute("aria-label", "관리자 화면");
     var modeLabel = Store.mode() === "cloud" ? "공유 저장소 연결됨" : Store.mode() === "local" ? "체험 모드 · 이 브라우저 데이터" : "저장소 연결 안 됨";
     el.innerHTML =
-      '<div class="admin-top"><div class="admin-title"><strong>관리자 화면</strong><span class="chip ' + (Store.mode() === "cloud" ? "task" : "past") + '">' + modeLabel + "</span></div>" +
+      '<div class="admin-top"><div class="admin-title"><strong>관리자 화면</strong><span class="muted small">v' + esc(SITE_VERSION) + '</span><span class="chip ' + (Store.mode() === "cloud" ? "task" : "past") + '">' + modeLabel + "</span></div>" +
         '<div class="admin-actions"><button type="button" class="btn ghost sm" id="admReload">새로 불러오기</button><button type="button" class="btn ghost sm" id="admLogout">로그아웃</button>' +
         '<button type="button" class="modal-x adm-x" id="admClose" aria-label="관리자 화면 닫기"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div></div>' +
       '<div class="admin-body"><nav class="admin-tabs" role="tablist" aria-label="관리 메뉴">' + TABS.map(function (t) {
@@ -255,16 +302,17 @@
     document.documentElement.classList.add("admin-open");
     $("#admClose").addEventListener("click", closePanel);
     $("#admLogout").addEventListener("click", function () {
-      isAdmin = false; try { sessionStorage.removeItem("akd:admin"); } catch (e) {}
-      closePanel(); drawLockState();
+      closePanel(); setAdmin(false);
+      var after = function () { return loadConfig().then(function () { if (window.SITE_ACCESS_REFRESH) return window.SITE_ACCESS_REFRESH(); }); };
+      Store.adminLogout().then(after, after);
     });
     $("#admReload").addEventListener("click", function () { loadAll().then(drawTab); toast("최신 내용을 불러왔습니다."); });
-    $(".admin-tabs", el).addEventListener("click", function (e) { var b = e.target.closest("[data-tab]"); if (b) { tab = b.dataset.tab; drawTab(); } });
+    $(".admin-tabs", el).addEventListener("click", function (e) { var b = e.target.closest("[data-tab]"); if (b) { tab = b.dataset.tab; lsS("adminTab", tab); drawTab(); } });
     $(".admin-tabs", el).addEventListener("keydown", function (e) {
       if (e.key !== "ArrowDown" && e.key !== "ArrowUp" && e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
       e.preventDefault();
       var i = TABS.findIndex(function (t) { return t[0] === tab; }), d = (e.key === "ArrowDown" || e.key === "ArrowRight") ? 1 : -1;
-      tab = TABS[(i + d + TABS.length) % TABS.length][0]; drawTab(); $("#tab-" + tab).focus();
+      tab = TABS[(i + d + TABS.length) % TABS.length][0]; lsS("adminTab", tab); drawTab(); $("#tab-" + tab).focus();
     });
     document.addEventListener("keydown", panelKey);
     $("#admMain").innerHTML = '<p class="loading">불러오는 중…</p>';
@@ -274,16 +322,20 @@
   function panelKey(e) { if (e.key === "Escape" && !document.querySelector(".modal-back")) closePanel(); }
   function closePanel() {
     var el = $("#adminPanel"); if (el) el.remove();
-    panelOpen = false; document.documentElement.classList.remove("admin-open");
+    panelOpen = false; lsS("adminPanel", null); document.documentElement.classList.remove("admin-open");
     document.removeEventListener("keydown", panelKey);
     var b = $("#lockBtn"); if (b) b.focus();
   }
   var toastTimer;
-  function toast(msg) { var t = $("#admToast"); if (!t) return; t.textContent = msg; t.classList.add("on"); clearTimeout(toastTimer); toastTimer = setTimeout(function () { t.classList.remove("on"); }, 2600); }
+  function toast(msg) {
+    var t = $("#admToast");
+    if (!t) { t = $("#siteToast") || document.createElement("div"); t.id = "siteToast"; t.className = "adm-toast float"; t.setAttribute("role", "status"); if (!t.parentNode) document.body.appendChild(t); }
+    t.textContent = msg; t.classList.add("on"); clearTimeout(toastTimer); toastTimer = setTimeout(function () { t.classList.remove("on"); }, 2600); }
   function modeHint() {
     if (Store.mode() === "local") return '<p class="mode-note">' + "<span><b>체험 모드</b> · 컴퓨터에서 파일을 직접 열었기 때문에 이 브라우저에 저장된 참여 내용만 보입니다. 사이트 편집 내용도 이 브라우저에만 적용되므로, 다른 곳에 반영하려면 ‘설정 파일’ 메뉴에서 config.js로 저장하세요.</span></p>";
+    if (Store.mode() === "cloud" && !Store.canEdit() && Store.isServer()) return '<p class="mode-note warn"><span>관리자 인증 시간이 지났습니다. 로그아웃한 뒤 다시 로그인해 주세요.</span></p>';
     if (Store.mode() === "cloud" && !Store.canEdit()) return '<p class="mode-note warn"><span>이 계정은 이 페이지의 편집 권한이 없어 수강생 기록을 볼 수 없습니다. 페이지 소유자 계정으로 열어 주세요.</span></p>';
-    if (Store.mode() !== "cloud") return '<p class="mode-note warn"><span>저장소에 연결되지 않았습니다. claude.ai에 로그인한 상태로 페이지를 열어 주세요.</span></p>';
+    if (Store.mode() !== "cloud") return '<p class="mode-note warn"><span>저장소에 연결되지 않았습니다. 배포된 사이트 주소로 페이지를 열어 주세요.</span></p>';
     return "";
   }
   function dlBtn(id, label) { return '<button type="button" class="btn ghost sm dl" id="' + id + '"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v12M7 11l5 5 5-5M5 20h14"/></svg>' + (label || "엑셀(CSV)로 내려받기") + "</button>"; }
@@ -306,13 +358,13 @@
     $$(".admin-tabs [data-tab]").forEach(function (b) { var on = b.dataset.tab === tab; b.classList.toggle("on", on); b.setAttribute("aria-selected", on ? "true" : "false"); b.tabIndex = on ? 0 : -1; });
     var main = $("#admMain");
     if (!D) { main.innerHTML = '<p class="loading">불러오는 중…</p>'; return; }
-    ({ dash: tDash, content: tContent, notice: tNotice, students: tStudents, apply: tApply, attend: tAttend, assign: tAssign, edit: tEdit, settings: tSettings })[tab](main);
+    ({ dash: tDash, content: tContent, notice: tNotice, course: tCourse, apply: tApply, edit: tEdit, settings: tSettings })[tab](main);
   }
 
   /* ---- 한눈에 보기 ---- */
   function tDash(main) {
     var ps = people(), held = heldSessions(), last = held[held.length - 1];
-    var base = D.students.length || ps.length;
+    var nOk = ps.filter(function (p) { return p.approved; }).length, base = baseOf(ps).length;
     var lastAtt = last ? ps.filter(function (p) { return p.att && p.att[last.id]; }).length : 0;
     var now = new Date(), aw = RT().weeks.filter(function (w) { return w.raw.assignment; });
     var lastDue = aw.filter(function (w) { return w.due && w.due <= now; }).pop() || aw[0];
@@ -324,7 +376,7 @@
     var tile = function (n, unit, label, sub) { return '<div class="adm-tile"><span class="adm-n">' + n + "<small>" + unit + "</small></span><b>" + label + "</b>" + (sub ? "<span>" + sub + "</span>" : "") + "</div>"; };
     main.innerHTML = bar("한눈에 보기", '<span class="muted small">' + esc(fmtAt(D.at.toISOString())) + " 기준</span>") + modeHint() +
       '<div class="adm-tiles">' +
-        tile(D.students.length, "명", "등록한 수강생 명단", D.students.length ? "" : "‘수강생 명단’에서 등록") +
+        tile(nOk, "명", "승인된 수강생", ps.length - nOk ? "승인 대기 " + (ps.length - nOk) + "명 · ‘강의 관리’에서 승인" : "") +
         tile(D.apps.length, "건", "수강 신청서") +
         tile(ps.filter(function (p) { return p.loggedIn; }).length, "명", "로그인한 수강생") +
         tile(last ? lastAtt + "<small>/" + base + "</small>" : "–", "", last ? last.n + "주차 " + last.day + "요일 출석" : "출석", last ? RT().fmtDay(last.date) : "아직 수업 전") +
@@ -505,6 +557,7 @@
     wrap.addEventListener("click", function (e) {
       var b = e.target.closest("[data-cm]"); if (!b || b.disabled) return;
       var act = b.dataset.cm, i = +b.dataset.i;
+      if ((act === "new" || act === "edit") && spec.openEditor) { spec.openEditor(act === "new" ? -1 : i); return; }
       if (act === "new") { cmEdit[spec.key] = "new"; drawTab(); return; }
       if (act === "cancel") { delete cmEdit[spec.key]; drawTab(); return; }
       if (act === "edit") { cmEdit[spec.key] = i; drawTab(); return; }
@@ -521,6 +574,171 @@
       spec.setList(cfg, list);
       delete cmEdit[spec.key];
       cmSave(cfg, act === "del" ? "삭제했습니다." : "순서를 바꿨습니다.").then(function () { drawTab(); }, function () {});
+    });
+  }
+
+  /* ================= 주차별 학습: 주차 추가·수정·삭제 (사이트 화면과 섹션 관리에서 함께 씀) ================= */
+  var curDays = function () { var c = window.SITE_CONFIG.curriculum || {}; return c.days && c.days.length ? c.days : ["화"]; };
+  function weekToForm(w, days) {
+    w = w || {};
+    var f = { topic: w.topic || "", badge: w.badge || "", concepts: w.concepts || [], content: w.content || [], homework: w.homework || "",
+      materials: w.materials || [], videos: w.videos || [],
+      common: (w.sessions || []).filter(function (s) { return !s.day; }).map(function (s) { return s.title; }),
+      hasAssign: !!w.assignment, aTitle: w.assignment ? w.assignment.title : "", aDue: w.assignment ? w.assignment.due : "", aDesc: w.assignment ? w.assignment.desc : "" };
+    days.forEach(function (d) { f["s_" + d] = (w.sessions || []).filter(function (s) { return s.day === d; }).map(function (s) { return s.title; }).join(" · "); });
+    return f;
+  }
+  function weekFromForm(v, old, days) {
+    var w = Object.assign({}, old || {});
+    w.topic = v.topic; if (v.badge) w.badge = v.badge; else delete w.badge;
+    var ss = v.common.map(function (t) { return { day: "", title: t }; });
+    days.forEach(function (d) { if (v["s_" + d]) ss.push({ day: d, title: v["s_" + d] }); });
+    if (ss.length) w.sessions = ss; else delete w.sessions;
+    w.concepts = v.concepts; w.content = v.content; w.videos = v.videos;
+    if (v.materials.length) w.materials = v.materials; else delete w.materials;
+    if (v.homework) w.homework = v.homework; else delete w.homework;
+    if (v.hasAssign) w.assignment = Object.assign({}, (old && old.assignment) || {}, { title: v.aTitle, desc: v.aDesc, due: v.aDue }); else delete w.assignment;
+    delete w.locked;
+    return w;
+  }
+  function saveWeeks(mutate, msg) {
+    var cfg = clone(window.SITE_CONFIG), c = ensure(cfg, "curriculum", {});
+    if (!Array.isArray(c.weeks)) c.weeks = [];
+    mutate(c.weeks);
+    return cmSave(cfg, msg).then(function () { if (panelOpen) drawTab(); });
+  }
+  function showWeek(i) {
+    if (panelOpen) return;
+    var el = document.getElementById("week-" + (i + 1)); if (!el) return;
+    el.open = true; el.scrollIntoView({ block: "start" });
+  }
+  function weekAction(act, i) {
+    if (!isAdmin) return;
+    if (act === "add") { openWeekEditor(-1); return; }
+    if (act === "edit") { openWeekEditor(i); return; }
+    if (act === "del") { saveWeeks(function (l) { l.splice(i, 1); }, (i + 1) + "주차를 삭제했습니다.").catch(function () {}); return; }
+    var to = act === "up" ? i - 1 : i + 1;
+    saveWeeks(function (l) { if (to >= 0 && to < l.length) l.splice(to, 0, l.splice(i, 1)[0]); }, "주차 순서를 바꿨습니다.").then(function () { showWeek(to); }, function () {});
+  }
+  document.addEventListener("site:week", function (e) { weekAction(e.detail.act, e.detail.i); });
+
+  /* 구글 드라이브 자료 · 참고 영상 줄 입력 */
+  function repRow(kind, it) {
+    var mat = kind === "mat";
+    return '<div class="rep-row">' +
+      '<input type="text" class="rep-t" aria-label="' + (mat ? "자료 제목" : "영상 제목") + '" placeholder="' + (mat ? "자료 제목 (예: 3주차 수업 슬라이드)" : "영상 제목") + '" value="' + esc(it.title || "") + '">' +
+      '<input type="text" inputmode="url" class="rep-u" aria-label="' + (mat ? "구글 드라이브 주소" : "YouTube 주소") + '" placeholder="' + (mat ? "https://drive.google.com/… 또는 https://docs.google.com/…" : "https://www.youtube.com/watch?v=… 또는 https://youtu.be/…") + '" value="' + esc(it.url || "") + '">' +
+      '<button type="button" class="rep-x" data-we="rm" aria-label="이 줄 지우기">삭제</button><p class="rep-hint muted small" aria-live="polite"></p></div>';
+  }
+  function repBox(kind, label, help, items) {
+    return '<fieldset class="rep" data-rep="' + kind + '"><legend>' + label + '</legend><p class="muted small">' + help + '</p><div class="rep-rows">' +
+      (items.length ? items : [{}]).map(function (it) { return repRow(kind, it); }).join("") +
+      '</div><button type="button" class="btn ghost sm" data-we="add" data-kind="' + kind + '">+ ' + (kind === "mat" ? "드라이브 자료" : "영상") + " 추가</button></fieldset>";
+  }
+  function repHint(row, kind) {
+    var DR = window.SITE_DRIVE, YT = window.SITE_YT, u = row.querySelector(".rep-u").value.trim(), h = row.querySelector(".rep-hint"), bad = false;
+    if (!u) h.textContent = "";
+    else if (kind === "mat") {
+      bad = !DR.valid(u);
+      h.textContent = bad ? "구글 드라이브·구글 문서 링크(https://drive.google.com/…, https://docs.google.com/…)만 첨부할 수 있습니다." : "Google Drive · " + DR.kind(u, "") + " — 드라이브 공유 설정을 ‘링크가 있는 모든 사용자(뷰어)’로 바꿔 주세요.";
+    } else {
+      var id = YT.id(u); bad = !id && !/^https?:\/\/\S+$/.test(u);
+      h.innerHTML = id ? '<img src="https://i.ytimg.com/vi/' + esc(id) + '/default.jpg" alt="" width="48" height="36"> YouTube 영상 · 사이트 안에서 바로 재생됩니다.'
+        : bad ? "https://로 시작하는 주소를 넣어 주세요." : "YouTube 주소가 아니어서 새 창으로 여는 링크로 표시됩니다.";
+    }
+    h.classList.toggle("bad", bad);
+  }
+  function readRep(form, kind) {
+    return $$('[data-rep="' + kind + '"] .rep-row', form).map(function (r, i) {
+      var u = r.querySelector(".rep-u"); u.id = "we-" + kind + i;
+      return { title: r.querySelector(".rep-t").value.trim(), url: u.value.trim(), i: i };
+    }).filter(function (x) { return x.title || x.url; });
+  }
+
+  function openWeekEditor(i) {
+    if (!isAdmin) return;
+    var list = (window.SITE_CONFIG.curriculum || {}).weeks || [], isNew = !(i >= 0 && i < list.length), old = isNew ? null : list[i];
+    if (old && old.locked) { toast("주차 내용을 아직 불러오지 못했습니다. 새로고침한 뒤 다시 시도해 주세요."); return; }
+    var days = curDays(), pre = "we-", f = weekToForm(old, days);
+    var top = [
+      { key: "topic", label: "주차 제목", type: "text", required: true, wide: true, placeholder: "예: AI 활용 번역 (1): 한국어 → 모어 번역" },
+      { key: "badge", label: "표시", type: "text", placeholder: "예: 중간고사 주간" }
+    ].concat(days.map(function (d) { return { key: "s_" + d, label: d + "요일 수업", type: "text", placeholder: "비우면 공통 수업 내용 또는 주차 제목" }; }))
+     .concat([
+      { key: "common", label: "요일 구분 없는 수업 내용", type: "lines", help: "모든 수업일에 함께 표시" },
+      { key: "concepts", label: "수업 핵심 질문(핵심 개념)", type: "lines" },
+      { key: "content", label: "활동", type: "lines" },
+      { key: "homework", label: "과제 칸", type: "text", placeholder: "예: 주 2회 챗봇 대화 연습", wide: true }
+    ]);
+    var asg = [
+      { key: "hasAssign", label: "이 주에 사이트에서 제출받는 과제가 있음", type: "checkbox", wide: true },
+      { key: "aTitle", label: "제출 과제 제목", type: "text" },
+      { key: "aDue", label: "마감 일시", type: "datetime", help: "비우면 ‘추후 공지’" },
+      { key: "aDesc", label: "제출 과제 설명", type: "textarea" }
+    ];
+    var back = document.createElement("div");
+    back.className = "modal-back over-admin";
+    back.innerHTML = '<form class="modal card wk-editor" role="dialog" aria-modal="true" aria-labelledby="weTitle" novalidate>' +
+      '<button type="button" class="modal-x" data-we="cancel" aria-label="닫기"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>' +
+      '<span class="badge"><span class="badge-dot"></span>주차별 학습 편집</span>' +
+      '<h2 id="weTitle">' + (isNew ? (list.length + 1) + "주차 추가" : (i + 1) + "주차 수정") + "</h2>" +
+      '<div class="cm-grid">' + top.map(function (x) { return cmField(x, f[x.key], pre); }).join("") + "</div>" +
+      repBox("mat", "구글 드라이브 자료", "수업 슬라이드·활동지·예시 자료를 구글 드라이브(문서·슬라이드·시트·파일·폴더) 링크로 첨부합니다. 제목을 비우면 자료 종류로 표시됩니다.", f.materials) +
+      repBox("vid", "참고 영상 (YouTube)", "YouTube 주소를 넣으면 주차 화면 안에서 바로 재생됩니다. 다른 주소는 링크로 표시됩니다.", f.videos) +
+      '<div class="cm-grid">' + asg.map(function (x) { return cmField(x, f[x.key], pre); }).join("") + "</div>" +
+      '<div class="err-summary" hidden></div>' +
+      '<div class="adm-row we-foot"><button type="submit" class="btn primary sm">' + (isNew ? "주차 추가하기" : "수정 내용 저장") + '</button><button type="button" class="btn ghost sm" data-we="cancel">취소</button></div></form>';
+    document.body.appendChild(back);
+    var form = $("form", back), lastFocus = document.activeElement;
+    requestAnimationFrame(function () { back.classList.add("in"); });
+    $$(".rep-row", form).forEach(function (r) { repHint(r, r.closest("[data-rep]").dataset.rep); });
+    var first = form.querySelector("#" + pre + "topic"); if (first) first.focus();
+    function close() {
+      back.classList.remove("in"); setTimeout(function () { back.remove(); }, 250);
+      document.removeEventListener("keydown", onKey);
+      if (lastFocus && lastFocus.focus && document.contains(lastFocus)) lastFocus.focus({ preventScroll: true });
+    }
+    function onKey(e) { if (e.key === "Escape") close(); }
+    document.addEventListener("keydown", onKey);
+    back.addEventListener("click", function (e) { if (e.target === back) close(); });
+    form.addEventListener("input", function (e) { var r = e.target.closest(".rep-row"); if (r && e.target.classList.contains("rep-u")) repHint(r, r.closest("[data-rep]").dataset.rep); });
+    form.addEventListener("click", function (e) {
+      var b = e.target.closest("[data-we]"); if (!b) return;
+      if (b.dataset.we === "cancel") { close(); return; }
+      if (b.dataset.we === "add") {
+        var rows = $(".rep-rows", b.closest("[data-rep]"));
+        rows.insertAdjacentHTML("beforeend", repRow(b.dataset.kind, {}));
+        rows.lastElementChild.querySelector(".rep-t").focus(); return;
+      }
+      if (b.dataset.we === "rm") {
+        var row = b.closest(".rep-row"), box = row.parentNode;
+        if (box.children.length > 1) row.remove(); else { $$("input", row).forEach(function (x) { x.value = ""; }); repHint(row, box.closest("[data-rep]").dataset.rep); }
+      }
+    });
+    form.addEventListener("submit", function (e) {
+      e.preventDefault();
+      var DR = window.SITE_DRIVE, YT = window.SITE_YT, v = {};
+      top.concat(asg).forEach(function (x) { v[x.key] = cmRead(x, form, pre); });
+      var mats = readRep(form, "mat"), vids = readRep(form, "vid");
+      var errs = cmErrors(top, v, function (x) { return x.hasAssign && !x.aTitle ? [["aTitle", "제출 과제 제목을 입력해 주세요."]] : []; });
+      mats.forEach(function (m) {
+        if (!m.url) errs.push(["mat" + m.i, "드라이브 자료 " + (m.i + 1) + "번째 줄: 구글 드라이브 주소를 넣어 주세요."]);
+        else if (!DR.valid(m.url)) errs.push(["mat" + m.i, "드라이브 자료 " + (m.i + 1) + "번째 줄: 구글 드라이브·구글 문서 링크만 첨부할 수 있습니다."]);
+      });
+      vids.forEach(function (x) {
+        if (!x.url) errs.push(["vid" + x.i, "참고 영상 " + (x.i + 1) + "번째 줄: 영상 주소를 넣어 주세요."]);
+        else if (!YT.id(x.url) && !/^https?:\/\/\S+$/.test(x.url)) errs.push(["vid" + x.i, "참고 영상 " + (x.i + 1) + "번째 줄: https://로 시작하는 주소를 넣어 주세요."]);
+      });
+      var eb = form.querySelector(".err-summary");
+      if (errs.length) { cmShowErr(eb, errs, pre); return; }
+      eb.hidden = true;
+      v.materials = mats.map(function (m) { return { title: m.title || "구글 드라이브 " + DR.kind(m.url, ""), url: m.url }; });
+      v.videos = vids.map(function (x) { return { title: x.title || (YT.id(x.url) ? "YouTube 영상" : x.url), url: x.url }; });
+      var item = weekFromForm(v, old, days), btn = form.querySelector('button[type="submit"]'), at = isNew ? list.length : i;
+      btn.disabled = true; btn.textContent = "저장하는 중…";
+      saveWeeks(function (l) { if (isNew) l.push(item); else l[i] = item; }, isNew ? (at + 1) + "주차를 추가했습니다." : (i + 1) + "주차를 수정했습니다.").then(function () {
+        close(); showWeek(at);
+      }, function () { btn.disabled = false; btn.textContent = isNew ? "주차 추가하기" : "수정 내용 저장"; eb.innerHTML = "<b>저장하지 못했습니다.</b> 관리자 로그인이 유지되고 있는지 확인해 주세요."; eb.hidden = false; });
     });
   }
 
@@ -551,57 +769,22 @@
 
   /* 1. 주차별 강의 계획 */
   function cmWeeks(box, C) {
-    var cur = C.curriculum || {}, days = cur.days && cur.days.length ? cur.days : ["화"];
     cmSettings(box, { key: "cur", label: "구역 제목 · 안내", fields: [
         { key: "title", label: "제목", type: "text", required: true },
         { key: "lead", label: "안내 문구", type: "textarea" },
         { key: "materialsNote", label: "자료 안내 문구", type: "text", placeholder: "주차별 수업 자료는 LMS에 올라옵니다." },
         { key: "submitUrl", label: "과제 제출 주소", type: "text", help: "비우면 사이트에서 제출받음", placeholder: "https://…" }
       ], get: function (c) { return c.curriculum; }, set: function (c, v) { Object.assign(ensure(c, "curriculum", {}), v); } });
-    var fields = [
-      { key: "topic", label: "주차 제목", type: "text", required: true, wide: true },
-      { key: "badge", label: "표시", type: "text", placeholder: "예: 중간고사 주간" }
-    ].concat(days.map(function (d) { return { key: "s_" + d, label: d + "요일 수업", type: "text", placeholder: "비우면 공통 수업 내용 또는 주차 제목" }; }))
-     .concat([
-      { key: "common", label: "요일 구분 없는 수업 내용", type: "lines", help: "모든 수업일에 함께 표시" },
-      { key: "concepts", label: "수업 핵심 질문(핵심 개념)", type: "lines" },
-      { key: "content", label: "활동", type: "lines" },
-      { key: "homework", label: "과제 칸", type: "text", placeholder: "예: 주 2회 챗봇 대화 연습", wide: true },
-      { key: "videos", label: "참고 영상", type: "pairs", help: "한 줄에 ‘제목 | 주소’" },
-      { key: "hasAssign", label: "이 주에 사이트에서 제출받는 과제가 있음", type: "checkbox", wide: true },
-      { key: "aTitle", label: "제출 과제 제목", type: "text" },
-      { key: "aDue", label: "마감 일시", type: "datetime", help: "비우면 ‘추후 공지’" },
-      { key: "aDesc", label: "제출 과제 설명", type: "textarea" }
-    ]);
     cmList(box, { key: "weeks", label: "주차", itemLabel: "주차",
-      note: "주차를 지우거나 순서를 바꾸면 뒤쪽 주차 번호와 날짜가 함께 당겨집니다. 이미 제출된 과제는 주차 번호로 저장되어 있으니 학기 중에는 주의해 주세요.",
+      note: "‘수정’을 누르면 주차 편집창이 열립니다. 구글 드라이브 자료와 YouTube 참고 영상도 여기서 첨부합니다. 주차를 지우거나 순서를 바꾸면 뒤쪽 주차 번호와 날짜가 함께 당겨집니다.",
       getList: function (c) { return (c.curriculum || {}).weeks; }, setList: function (c, l) { ensure(c, "curriculum", {}).weeks = l; },
       itemTitle: function (w, i) { return (i + 1) + "주차 · " + (w.topic || ""); },
       itemSub: function (w, i) {
-        var R = RT(), wk = R.weeks[i];
-        return (wk ? esc(wk.sessions.map(function (s) { return R.fmtDay(s.date); }).join(" · ")) : "") + (w.badge ? " · " + esc(w.badge) : "") + (w.assignment ? " · 과제: " + esc(w.assignment.title) : "");
+        var R = RT(), wk = R.weeks[i], m = (w.materials || []).length, v = (w.videos || []).length;
+        return (wk ? esc(wk.sessions.map(function (s) { return R.fmtDay(s.date); }).join(" · ")) : "") + (w.badge ? " · " + esc(w.badge) : "") +
+          (m ? " · 드라이브 자료 " + m + "개" : "") + (v ? " · 영상 " + v + "개" : "") + (w.assignment ? " · 과제: " + esc(w.assignment.title) : "");
       },
-      blank: function () { var b = { topic: "", badge: "", common: [], concepts: [], content: [], homework: "", videos: [], hasAssign: false, aTitle: "", aDue: "", aDesc: "" }; days.forEach(function (d) { b["s_" + d] = ""; }); return b; },
-      toForm: function (w) {
-        var f = { topic: w.topic, badge: w.badge || "", concepts: w.concepts || [], content: w.content || [], homework: w.homework || "", videos: w.videos || [],
-          common: (w.sessions || []).filter(function (s) { return !s.day; }).map(function (s) { return s.title; }),
-          hasAssign: !!w.assignment, aTitle: w.assignment ? w.assignment.title : "", aDue: w.assignment ? w.assignment.due : "", aDesc: w.assignment ? w.assignment.desc : "" };
-        days.forEach(function (d) { f["s_" + d] = (w.sessions || []).filter(function (s) { return s.day === d; }).map(function (s) { return s.title; }).join(" · "); });
-        return f;
-      },
-      fromForm: function (v, old) {
-        var w = Object.assign({}, old || {});
-        w.topic = v.topic; if (v.badge) w.badge = v.badge; else delete w.badge;
-        var ss = v.common.map(function (t) { return { day: "", title: t }; });
-        days.forEach(function (d) { if (v["s_" + d]) ss.push({ day: d, title: v["s_" + d] }); });
-        if (ss.length) w.sessions = ss; else delete w.sessions;
-        w.concepts = v.concepts; w.content = v.content; w.videos = v.videos;
-        if (v.homework) w.homework = v.homework; else delete w.homework;
-        if (v.hasAssign) w.assignment = Object.assign({}, (old && old.assignment) || {}, { title: v.aTitle, desc: v.aDesc, due: v.aDue }); else delete w.assignment;
-        return w;
-      },
-      validate: function (v) { return v.hasAssign && !v.aTitle ? [["aTitle", "제출 과제 제목을 입력해 주세요."]] : []; },
-      fields: fields });
+      openEditor: openWeekEditor });
   }
 
   /* 2. 월간 수업 달력 */
@@ -804,63 +987,83 @@
       fields: [{ key: "q", label: "질문", type: "text", required: true, wide: true }, { key: "a", label: "답변", type: "textarea", required: true }] });
   }
 
-  /* ---- 수강생 명단 ---- */
-  function parseRoster(text) {
-    var out = [], seen = {};
-    text.replace(/^﻿/, "").split(/\r?\n/).forEach(function (line) {
-      if (!line.trim()) return;
-      var c = line.split(/\t|,/).map(function (x) { return x.trim().replace(/^"|"$/g, ""); });
-      var idIdx = c.findIndex(function (x) { return /^\d{6,12}$/.test(x); });
-      if (idIdx < 0) return;
-      var rest = c.filter(function (x, i) { return i !== idIdx && x; });
-      var id = c[idIdx]; if (seen[id]) return; seen[id] = 1;
-      out.push({ studentId: id, name: rest[0] || "", dept: rest[1] || "" });
+  /* ================= 강의 관리 ================= */
+  var CRS = [["status", "👥 수강생 현황"], ["attend", "📅 주차별 출석 현황"], ["assign", "📝 주차별 과제 제출 현황"]];
+  var crsSub = CRS.some(function (c) { return c[0] === lsG("adminCourse"); }) ? lsG("adminCourse") : "status", stFilter = "all";
+  function sbar(title, right) { return '<div class="adm-bar sm crs-bar"><h3>' + title + '</h3><div class="adm-bar-r">' + (right || "") + "</div></div>"; }
+  function tCourse(main) {
+    var ps = people(), wait = ps.filter(function (p) { return !p.approved; }).length;
+    main.innerHTML = bar("강의 관리", '<span class="muted small">' + esc(fmtAt(D.at.toISOString())) + " 기준</span>") + modeHint() +
+      '<div class="cm-tabs crs-tabs" role="tablist" aria-label="강의 관리 메뉴">' + CRS.map(function (c) {
+        return '<button type="button" role="tab" data-crs="' + c[0] + '" aria-selected="' + (c[0] === crsSub) + '" class="pf-chip' + (c[0] === crsSub ? " on" : "") + '">' + c[1] +
+          (c[0] === "status" && wait ? " <small>대기 " + wait + "</small>" : "") + "</button>";
+      }).join("") + '</div><div id="crsBody" role="tabpanel"></div>';
+    main.querySelector(".crs-tabs").addEventListener("click", function (e) {
+      var b = e.target.closest("[data-crs]"); if (!b) return; crsSub = b.dataset.crs; lsS("adminCourse", crsSub); drawTab();
     });
-    return out;
+    ({ status: cStatus, attend: cAttend, assign: cAssign })[crsSub]($("#crsBody"), ps);
   }
-  function tStudents(main) {
-    var ps = people(), byId = {}; ps.forEach(function (p) { byId[p.studentId] = p; });
-    var held = heldSessions().length;
-    main.innerHTML = bar("수강생 명단", dlBtn("dlStu")) + modeHint() +
-      '<div class="adm-card adm-form">' +
-        '<label class="lbl" for="stText">명단 붙여넣기</label>' +
-        '<p class="muted small">엑셀에서 <b>학번 · 이름 · 학과</b> 열을 복사해 붙여 넣거나, CSV 파일을 불러오세요. 한 줄에 한 명씩, 머리글 줄은 자동으로 건너뜁니다.</p>' +
-        '<textarea id="stText" rows="6" placeholder="2026123456	김고대	국어국문학과&#10;2026123457	이안암	경영학과"></textarea>' +
-        '<div class="adm-row"><label class="btn ghost sm file-btn" for="stFile">CSV 파일 불러오기</label><input type="file" id="stFile" accept=".csv,.txt" hidden>' +
-        '<span class="muted small" id="stPrev"></span></div>' +
-        '<div class="adm-row"><button type="button" class="btn primary sm" id="stAdd">명단에 추가</button><button type="button" class="btn ghost sm" id="stReplace">이 내용으로 명단 바꾸기</button></div>' +
-        '<p class="form-err" id="stErr" role="alert"></p></div>' +
-      '<h3 class="adm-h3">등록된 수강생 ' + D.students.length + "명</h3>" +
-      table(["학번", "이름", "학과", "수강 신청", "로그인", "출석", ""], D.students.map(function (s) {
-        var p = byId[s.studentId] || {}, a = p.att ? Object.keys(p.att).length : 0;
-        return [esc(s.studentId), esc(s.name), esc(s.dept), p.app ? "✓" : "–", p.loggedIn ? "✓" : "–", a + "/" + held, '<button type="button" class="text-btn danger" data-rm="' + esc(s.studentId) + '">빼기</button>'];
-      }), { empty: "아직 등록한 명단이 없습니다. 위에서 붙여 넣거나 CSV 파일을 불러오세요." }) +
-      (ps.filter(function (p) { return !p.listed; }).length ? '<h3 class="adm-h3">명단에 없는 참여자</h3><p class="muted small">로그인하거나 신청서를 냈지만 등록한 명단에 없는 학번입니다.</p>' +
-        table(["학번", "이름", "수강 신청", "로그인"], ps.filter(function (p) { return !p.listed; }).map(function (p) { return [esc(p.studentId), esc(p.name), p.app ? "✓" : "–", p.loggedIn ? "✓" : "–"]; })) : "");
-    var ta = $("#stText");
-    var preview = function () { var n = parseRoster(ta.value).length; $("#stPrev").textContent = ta.value.trim() ? "학번이 있는 줄 " + n + "명을 찾았습니다." : ""; };
-    ta.addEventListener("input", preview);
-    $("#stFile").addEventListener("change", function () { var f = this.files[0]; if (f) readText(f).then(function (t) { ta.value = t; preview(); }); });
-    var save = function (list, msg) {
-      return Store.set("admin/students", { list: list, at: new Date().toISOString() }).then(function () { D.students = list; toast(msg); drawTab(); },
-        function () { $("#stErr").textContent = "명단을 저장하지 못했습니다. 편집 권한을 확인해 주세요."; });
-    };
-    $("#stAdd").addEventListener("click", function () {
-      var add = parseRoster(ta.value); if (!add.length) { $("#stErr").textContent = "학번(숫자)이 들어 있는 줄을 찾지 못했습니다."; ta.focus(); return; }
-      var map = {}; D.students.forEach(function (s) { map[s.studentId] = s; }); add.forEach(function (s) { map[s.studentId] = s; });
-      save(Object.keys(map).sort().map(function (k) { return map[k]; }), add.length + "명을 명단에 반영했습니다.");
+
+  /* ---- 👥 수강생 현황 + 관리자 승인 ---- */
+  function approveAll(list) {
+    var seq = Promise.resolve();
+    list.forEach(function (p) {
+      seq = seq.then(function () {
+        var rec = { studentId: p.studentId, name: p.name, at: new Date().toISOString() };
+        return Store.set("approvals/" + p.studentId, rec).then(function () { D.approvals[p.studentId] = rec; });
+      });
     });
-    $("#stReplace").addEventListener("click", function () {
-      var list = parseRoster(ta.value); if (!list.length) { $("#stErr").textContent = "학번(숫자)이 들어 있는 줄을 찾지 못했습니다."; ta.focus(); return; }
-      var b = this; if (b.dataset.confirm !== "1") { b.dataset.confirm = "1"; b.textContent = "기존 명단을 지우고 바꿀까요? 한 번 더 누르세요"; return; }
-      save(list, "명단을 " + list.length + "명으로 바꿨습니다.");
+    return seq;
+  }
+  function cStatus(body, ps) {
+    var held = heldSessions().length, aw = RT().weeks.filter(function (w) { return w.raw.assignment; });
+    var nOk = ps.filter(function (p) { return p.approved; }).length, nWait = ps.length - nOk;
+    var shown = ps.filter(function (p) { return stFilter === "all" || (stFilter === "wait" ? !p.approved : p.approved); });
+    var av = function (p, k) { var x = p.app && p.app[k]; return x ? esc(x) : "–"; };
+    body.innerHTML = sbar("👥 수강생 현황 <small class=\"muted\">" + ps.length + "명</small>",
+        (nWait ? '<button type="button" class="btn primary sm" id="apAll">대기 중 ' + nWait + "명 모두 승인</button>" : "") + dlBtn("dlStu")) +
+      '<p class="muted small">수강 신청서를 내거나 로그인한 수강생이 모두 여기에 모입니다. <b>승인</b>한 수강생만 사이트의 ‘주차별 학습’ 내용을 볼 수 있으며, 승인하면 학생 화면은 30초 안에 자동으로 열립니다.</p>' +
+      '<div class="pf-filter st-filter" role="toolbar" aria-label="승인 상태로 거르기">' + [["all", "전체", ps.length], ["wait", "승인 대기", nWait], ["ok", "승인됨", nOk]].map(function (f) {
+        return '<button type="button" class="pf-chip' + (stFilter === f[0] ? " on" : "") + '" data-stf="' + f[0] + '" aria-pressed="' + (stFilter === f[0]) + '">' + f[1] + " <small>" + f[2] + "</small></button>";
+      }).join("") + "</div>" +
+      table(["학번", "이름", "학과", "학년", "국적", "TOPIK", "AI 사용", "이메일", "신청일", "출석", "과제", "상태", "승인 관리"], shown.map(function (p) {
+        var att = p.att ? Object.keys(p.att).length : 0, sub = p.subs ? Object.keys(p.subs).length : 0;
+        return [esc(p.studentId), esc(p.name) || "–", esc(p.dept) || "–", av(p, "year"), av(p, "nationality"), av(p, "topik"), av(p, "aiExp"),
+          '<span class="cell-clip">' + av(p, "email") + "</span>",
+          p.app ? esc(fmtAt(p.app.submittedAt).slice(0, 10)) : '<span class="chip past" title="로그인만 하고 신청서는 내지 않음">신청서 없음</span>',
+          att + "/" + held, sub + "/" + aw.length,
+          p.approved ? '<span class="chip now" title="' + esc(fmtAt(p.approvedAt)) + ' 승인">승인됨</span>' : '<span class="chip past">승인 대기</span>',
+          p.approved ? '<button type="button" class="text-btn danger" data-revoke="' + esc(p.studentId) + '">승인 취소</button>'
+            : '<button type="button" class="btn primary sm" data-approve="' + esc(p.studentId) + '">승인</button>'];
+      }), { empty: stFilter === "all" ? "아직 수강 신청하거나 로그인한 수강생이 없습니다." : "해당하는 수강생이 없습니다.", cls: "wide st-tbl" }) +
+      '<p class="form-err" id="stErr" role="alert"></p>';
+    var fail = function () { $("#stErr").textContent = "저장하지 못했습니다. 관리자 로그인이 유지되고 있는지 확인해 주세요."; };
+    $$("[data-stf]", body).forEach(function (b) { b.addEventListener("click", function () { stFilter = b.dataset.stf; drawTab(); }); });
+    $$("[data-approve]", body).forEach(function (b) {
+      b.addEventListener("click", function () {
+        var p = ps.filter(function (x) { return x.studentId === b.dataset.approve; })[0]; if (!p) return;
+        b.disabled = true;
+        approveAll([p]).then(function () { toast(p.name + "(" + p.studentId + ") 님을 승인했습니다."); drawTab(); }, function () { b.disabled = false; fail(); });
+      });
     });
-    main.querySelectorAll("[data-rm]").forEach(function (b) {
-      b.addEventListener("click", function () { save(D.students.filter(function (s) { return s.studentId !== b.dataset.rm; }), b.dataset.rm + " 학번을 명단에서 뺐습니다."); });
+    $$("[data-revoke]", body).forEach(function (b) {
+      b.addEventListener("click", function () {
+        if (b.dataset.confirm !== "1") { b.dataset.confirm = "1"; b.textContent = "한 번 더 누르면 취소"; return; }
+        var id = b.dataset.revoke;
+        Store.del("approvals/" + id).then(function () { delete D.approvals[id]; toast(id + " 학번의 승인을 취소했습니다."); drawTab(); }, fail);
+      });
     });
-    onDl("dlStu", "수강생명단_" + stamp() + ".csv", function () {
-      return [["학번", "이름", "학과", "수강 신청", "로그인", "출석 수"]].concat(D.students.map(function (s) {
-        var p = byId[s.studentId] || {}; return [s.studentId, s.name, s.dept, p.app ? "O" : "", p.loggedIn ? "O" : "", p.att ? Object.keys(p.att).length : 0];
+    var all = $("#apAll");
+    if (all) all.addEventListener("click", function () {
+      if (all.dataset.confirm !== "1") { all.dataset.confirm = "1"; all.textContent = nWait + "명을 모두 승인할까요? 한 번 더 누르세요"; return; }
+      all.disabled = true;
+      approveAll(ps.filter(function (p) { return !p.approved; })).then(function () { toast(nWait + "명을 승인했습니다."); drawTab(); }, function () { all.disabled = false; fail(); drawTab(); });
+    });
+    onDl("dlStu", "수강생현황_" + stamp() + ".csv", function () {
+      return [["학번", "이름", "학과", "학년", "국적", "TOPIK", "AI 사용", "이메일", "신청 시각", "출석 수", "지난 수업 수", "과제 제출 수", "과제 수", "상태", "승인 시각"]].concat(ps.map(function (p) {
+        var a = p.app || {};
+        return [p.studentId, p.name, p.dept, a.year, a.nationality, a.topik, a.aiExp, a.email, a.submittedAt ? fmtAt(a.submittedAt) : "",
+          p.att ? Object.keys(p.att).length : 0, held, p.subs ? Object.keys(p.subs).length : 0, aw.length, p.approved ? "승인" : "대기", p.approvedAt ? fmtAt(p.approvedAt) : ""];
       }));
     });
   }
@@ -868,16 +1071,17 @@
   /* ---- 수강 신청 ---- */
   function tApply(main) {
     var fields = ((window.SITE_CONFIG.apply || {}).fields || []).filter(function (f) { return f.type !== "consent"; });
-    var listed = {}; D.students.forEach(function (s) { listed[s.studentId] = 1; });
+    var ok = D.approvals;
     var apps = D.apps.filter(function (a) { return a.data; }).sort(function (a, b) { return String(a.data.submittedAt).localeCompare(String(b.data.submittedAt)); });
     main.innerHTML = bar("수강 신청 내역 " + apps.length + "건", dlBtn("dlApp")) + modeHint() +
-      table(["제출 시각"].concat(fields.map(function (f) { return esc(f.label); })).concat(["명단"]), apps.map(function (a) {
+      '<p class="muted small">승인은 ‘강의 관리 → 👥 수강생 현황’에서 합니다.</p>' +
+      table(["제출 시각"].concat(fields.map(function (f) { return esc(f.label); })).concat(["승인"]), apps.map(function (a) {
         return [esc(fmtAt(a.data.submittedAt))].concat(fields.map(function (f) { return '<span class="cell-clip">' + esc(a.data[f.id]) + "</span>"; }))
-          .concat([D.students.length ? (listed[a.data.studentId] ? "✓" : '<span class="chip past">명단 외</span>') : "–"]);
+          .concat([ok[a.data.studentId] ? '<span class="chip now">승인됨</span>' : '<span class="chip past">대기</span>']);
       }), { empty: "아직 제출된 수강 신청서가 없습니다.", cls: "wide" });
     onDl("dlApp", "수강신청내역_" + stamp() + ".csv", function () {
-      return [["제출 시각"].concat(fields.map(function (f) { return f.label; })).concat(["개인정보 동의", "명단 포함"])].concat(apps.map(function (a) {
-        return [fmtAt(a.data.submittedAt)].concat(fields.map(function (f) { return a.data[f.id]; })).concat([a.data.consent ? "동의" : "", listed[a.data.studentId] ? "O" : ""]);
+      return [["제출 시각"].concat(fields.map(function (f) { return f.label; })).concat(["개인정보 동의", "승인"])].concat(apps.map(function (a) {
+        return [fmtAt(a.data.submittedAt)].concat(fields.map(function (f) { return a.data[f.id]; })).concat([a.data.consent ? "동의" : "", ok[a.data.studentId] ? "O" : ""]);
       }));
     });
   }
@@ -893,22 +1097,35 @@
     });
     return { cells: cells, cnt: cnt, miss: miss };
   }
-  function tAttend(main) {
-    var ps = people().filter(function (p) { return p.listed || p.loggedIn || p.att; });
-    var ss = allSessions(), held = heldSessions().length, fail = failN();
-    main.innerHTML = bar("출석 현황", dlBtn("dlAtt")) + modeHint() +
-      '<p class="muted small">✓ 출석 · <span class="x">×</span> 지난 수업 미출석 · 휴 = 휴강 · 빈칸은 아직 수업 전입니다. 지금까지 수업 ' + held + "회." + (fail ? " 결석 " + fail + "회 이상은 성적 미부여 대상입니다." : "") + "</p>" +
+  function cAttend(body, all) {
+    var ps = all.filter(function (p) { return p.approved || p.att; }), base = baseOf(all);
+    var ss = allSessions(), held = heldSessions().length, fail = failN(), now = new Date();
+    var weekRows = [];
+    RT().weeks.forEach(function (w) {
+      w.sessions.forEach(function (s, j) {
+        var past = s.date <= now, got = base.filter(function (p) { return p.att && p.att[s.id]; });
+        var absent = base.filter(function (p) { return !(p.att && p.att[s.id]); }).map(function (p) { return p.name || p.studentId; });
+        weekRows.push([j ? "" : "<b>" + w.n + "주차</b>", esc(s.day) + " · " + esc(RT().fmtDay(s.date)), '<span class="cell-clip">' + esc(s.title || w.raw.topic || "") + "</span>",
+          s.holiday ? '<span class="chip past">휴강</span>' : past || got.length ? got.length + "/" + base.length : '<span class="muted">예정</span>',
+          s.holiday || !(past || got.length) || !base.length ? "–" : Math.round(got.length / base.length * 100) + "%",
+          s.holiday || !past ? "" : '<span class="cell-clip small">' + esc(absent.join(", ")) + "</span>"]);
+      });
+    });
+    body.innerHTML = sbar("📅 주차별 출석 현황", dlBtn("dlAtt")) +
+      '<p class="muted small">기준 인원: ' + (all.some(function (p) { return p.approved; }) ? "승인된 수강생 " : "참여자 ") + base.length + "명 · 지금까지 수업 " + held + "회." + (fail ? " 결석 " + fail + "회 이상은 성적 미부여 대상입니다." : "") + "</p>" +
+      table(["주차", "수업일", "수업 내용", "출석", "출석률", "미출석"], weekRows, { empty: "등록된 수업이 없습니다.", cls: "wide wk-att" }) +
+      '<h3 class="adm-h3">학생별 출석표</h3><p class="muted small">✓ 출석 · <span class="x">×</span> 지난 수업 미출석 · 휴 = 휴강 · 빈칸은 아직 수업 전입니다.</p>' +
       table(["학번", "이름"].concat(ss.map(function (s) { return s.n + s.day + '<small class="th-sub">' + (s.date.getMonth() + 1) + "/" + s.date.getDate() + "</small>"; })).concat(["출석", "결석", "출석률"]),
         ps.map(function (p) {
           var r = attRow(p, false), risk = fail && r.miss >= fail;
-          return [esc(p.studentId) + (p.listed ? "" : ' <span class="chip past">명단 외</span>'), esc(p.name)].concat(r.cells)
+          return [esc(p.studentId) + apprTag(p), esc(p.name)].concat(r.cells)
             .concat([r.cnt + "/" + held, risk ? '<span class="chip now">' + r.miss + "회 · 위험</span>" : String(r.miss), held ? Math.round(r.cnt / held * 100) + "%" : "–"]);
         }), { empty: "출석 기록이 없습니다.", cls: "att-tbl" });
     onDl("dlAtt", "출석현황_" + stamp() + ".csv", function () {
-      return [["학번", "이름", "학과"].concat(ss.map(function (s) { return s.n + "주차 " + s.day + "(" + (s.date.getMonth() + 1) + "/" + s.date.getDate() + ")"; })).concat(["출석 수", "결석 수", "지난 수업 수", "출석률(%)", "명단 포함"])]
+      return [["학번", "이름", "학과"].concat(ss.map(function (s) { return s.n + "주차 " + s.day + "(" + (s.date.getMonth() + 1) + "/" + s.date.getDate() + ")"; })).concat(["출석 수", "결석 수", "지난 수업 수", "출석률(%)", "승인"])]
         .concat(ps.map(function (p) {
           var r = attRow(p, true);
-          return [p.studentId, p.name, p.dept].concat(r.cells).concat([r.cnt, r.miss, held, held ? Math.round(r.cnt / held * 100) : "", p.listed ? "O" : ""]);
+          return [p.studentId, p.name, p.dept].concat(r.cells).concat([r.cnt, r.miss, held, held ? Math.round(r.cnt / held * 100) : "", p.approved ? "O" : ""]);
         }));
     });
   }
@@ -925,20 +1142,28 @@
     });
   }
   var safeName = function (s) { return String(s).replace(/[\\/:*?"<>|]/g, "_"); };
-  function tAssign(main) {
+  function cAssign(main, all) {
     var aw = RT().weeks.filter(function (w) { return w.raw.assignment; });
-    var ps = people().filter(function (p) { return p.listed || p.loggedIn || p.subs; });
+    var ps = all.filter(function (p) { return p.approved || p.loggedIn || p.subs; }), base = baseOf(all);
     var now = new Date(), localMode = Store.mode() !== "cloud";
-    main.innerHTML = bar("과제 제출 현황", dlBtn("dlSub")) + modeHint() +
+    main.innerHTML = sbar("📝 주차별 과제 제출 현황", dlBtn("dlSub")) +
       (localMode ? '<p class="muted small">체험 모드에서는 파일 이름과 크기만 기록되어 파일을 내려받을 수 없습니다.</p>' : "") +
+      table(["주차", "과제", "마감", "제출", "지각", "제출률", "미제출"], aw.map(function (w) {
+        var got = base.filter(function (p) { return p.subs && p.subs[w.n]; }), late = got.filter(function (p) { return p.subs[w.n].late; }).length;
+        var closed = w.due && w.due <= now, miss = base.filter(function (p) { return !(p.subs && p.subs[w.n]); }).map(function (p) { return p.name || p.studentId; });
+        return ["<b>" + w.n + "주차</b>", '<span class="cell-clip">' + esc(w.raw.assignment.title) + "</span>", esc(RT().fmtDue(w.due)) + (closed ? ' <span class="chip past">마감</span>' : ""),
+          got.length + "/" + base.length, String(late), base.length ? Math.round(got.length / base.length * 100) + "%" : "–",
+          closed ? '<span class="cell-clip small">' + esc(miss.join(", ")) + "</span>" : '<span class="muted">' + (miss.length ? miss.length + "명 남음" : "모두 제출") + "</span>"];
+      }), { empty: "사이트에서 제출받는 과제가 없습니다. ‘주차별 학습’에서 주차를 수정해 과제를 추가하세요.", cls: "wide" }) +
+      (aw.length ? '<h3 class="adm-h3">과제별 제출 파일</h3>' : "") +
       '<div class="adm-assign">' + aw.map(function (w) {
         var got = ps.filter(function (p) { return p.subs && p.subs[w.n]; });
         return '<div class="adm-card"><div class="adm-bar sm"><h3>' + w.n + "주차 · " + esc(w.raw.assignment.title) + '</h3><div class="adm-bar-r"><span class="muted small">마감 ' + esc(RT().fmtDue(w.due)) + "</span>" +
           (got.length && !localMode ? '<button type="button" class="btn ghost sm" data-zip="' + w.n + '">모두 받기(.zip)</button>' : "") + "</div></div>" +
-          '<p class="muted small">제출 ' + got.length + "명" + (ps.length ? " / " + (D.students.length || ps.length) + "명" : "") + (!w.due ? " · 제출 기한 추후 공지" : w.due > now ? " · 진행 중" : " · 마감") + "</p>" +
+          '<p class="muted small">제출 ' + got.length + "명" + (base.length ? " / " + base.length + "명" : "") + (!w.due ? " · 제출 기한 추후 공지" : w.due > now ? " · 진행 중" : " · 마감") + "</p>" +
           (got.length ? table(["학번", "이름", "파일", "제출 시각", ""], got.map(function (p) {
             var it = p.subs[w.n];
-            return [esc(p.studentId), esc(p.name), '<span class="cell-clip">' + esc(it.fileName) + "</span>", esc(fmtAt(it.at)) + (it.late ? ' <span class="chip past">지각</span>' : ""),
+            return [esc(p.studentId) + apprTag(p), esc(p.name), '<span class="cell-clip">' + esc(it.fileName) + "</span>", esc(fmtAt(it.at)) + (it.late ? ' <span class="chip past">지각</span>' : ""),
               localMode || !it.chunks ? "" : '<button type="button" class="text-btn" data-file="' + esc(p.studentId) + "|" + w.n + '">내려받기</button>'];
           })) : "") +
         "</div>";
@@ -968,11 +1193,11 @@
       });
     });
     onDl("dlSub", "과제제출현황_" + stamp() + ".csv", function () {
-      return [["학번", "이름", "학과"].concat(aw.map(function (w) { return w.n + "주차 " + w.raw.assignment.title; })).concat(["제출 수", "명단 포함"])]
+      return [["학번", "이름", "학과"].concat(aw.map(function (w) { return w.n + "주차 " + w.raw.assignment.title; })).concat(["제출 수", "승인"])]
         .concat(ps.map(function (p) {
           var cnt = 0;
           var cells = aw.map(function (w) { var it = p.subs && p.subs[w.n]; if (!it) return w.due && w.due <= now ? "미제출" : ""; cnt++; return fmtAt(it.at) + (it.late ? " (지각)" : "") + " " + it.fileName; });
-          return [p.studentId, p.name, p.dept].concat(cells).concat([cnt, p.listed ? "O" : ""]);
+          return [p.studentId, p.name, p.dept].concat(cells).concat([cnt, p.approved ? "O" : ""]);
         }));
     });
   }
@@ -980,8 +1205,8 @@
   /* ---- 사이트 내용 편집 ---- */
   var SECTIONS = [
     ["site", "사이트 기본 정보"], ["hero", "첫 화면"], ["overview", "강의 한눈에 보기"], ["stats", "숫자 카드"], ["syllabus", "강의계획서"],
-    ["strengths", "강의 장점 슬라이드"], ["tools", "실습 AI 도구"], ["curriculum", "커리큘럼과 일정"], ["portfolio", "포트폴리오"], ["guide", "수강 준비물"],
-    ["apply", "수강 신청서"], ["participate", "참여 공간(투표·출석·과제)"], ["faq", "자주 묻는 질문"], ["instructor", "교수자"],
+    ["strengths", "강의 특징"], ["tools", "실습 AI 도구"], ["curriculum", "커리큘럼과 일정"], ["portfolio", "포트폴리오"], ["guide", "수강 준비물"],
+    ["apply", "수강 신청서"], ["participate", "참여 공간(투표·출석·과제)"], ["intro", "소개 띠"], ["cta", "마지막 안내"], ["faq", "자주 묻는 질문"], ["instructor", "교수자"],
     ["popup", "첫 방문 안내 팝업"], ["welcome", "환영 효과"], ["nav", "상단 메뉴"], ["theme", "색상"]
   ];
   var KL = {
@@ -994,7 +1219,7 @@
     text: "문구", poll: "투표", question: "질문", attendance: "출석", onlyClassDay: "수업 날짜에만 출석 가능", submission: "과제 제출", maxMB: "파일 최대 크기(MB)",
     accept: "받을 파일 형식", allowLate: "마감 후 제출 허용(지각 표시)", enabled: "사용", delaySeconds: "뜨기까지(초)", button: "버튼 글자", fireworks: "폭죽 효과 사용",
     message: "환영 문구", position: "직함", photo: "사진 파일 경로", bio: "소개", contacts: "연락처", org: "소속", semester: "학기", footerNote: "맨 아래 문구",
-    blossom: "분홍색(예: #e2779f, 비우면 기본)", lilac: "보라색(예: #8f74cf, 비우면 기본)", id: "식별자(바꾸지 마세요)", doneTitle: "제출 완료 제목", doneBody: "제출 완료 안내",
+    blossom: "주 색상(예: #5f9070, 비우면 기본 세이지 그린)", lilac: "보조 색상(예: #3f6b4f, 비우면 기본)", headline: "큰 제목(*별표* 안 글자는 기울임)", id: "식별자(바꾸지 마세요)", doneTitle: "제출 완료 제목", doneBody: "제출 완료 안내",
     date: "날짜", concepts: "수업 핵심 질문(핵심 개념)", homework: "과제 칸", sessions: "요일별 수업", day: "요일(비우면 그 주 모든 수업)",
     badge: "표시(예: 중간고사 주간)", days: "수업 요일", holidays: "휴강일", materialsNote: "자료 안내 문구", info: "기본 정보", notes: "유의사항",
     notesTitle: "유의사항 제목", summary: "강의 개요", summaryTitle: "개요 제목", goals: "수업 목표", goalsTitle: "목표 제목", goalLead: "대표 목표",
@@ -1164,7 +1389,7 @@
       var salt = "akd-" + Math.random().toString(36).slice(2, 10), cfg = clone(window.SITE_CONFIG);
       cfg.admin = { salt: salt, passwordHash: hashPw(salt, a) };
       applyConfig(cfg, true).then(function () {
-        try { sessionStorage.setItem("akd:admin", cfg.admin.passwordHash); } catch (x) {}
+        lsS("admin", cfg.admin.passwordHash);
         draft = clone(cfg); window.SITE_CONFIG_SOURCE = cloud ? "shared" : "browser";
         toast("비밀번호를 바꿨습니다."); tSettings(main);
         $("#sfErr").textContent = cloud ? "" : "다른 컴퓨터에서도 새 비밀번호를 쓰려면 config.js로 저장해 파일을 바꿔 주세요.";
@@ -1177,13 +1402,12 @@
   if (lock) lock.addEventListener("click", openLogin);
   drawLockState();
   window.SITE_READY.then(function () {
-    if (Store.mode() === "cloud") {
-      return Store.get("site/config").then(function (d) {
-        if (!d || !d.json) return;
-        try { var cfg = JSON.parse(d.json); window.SITE_CONFIG_SOURCE = "shared"; applyConfig(cfg, false); } catch (e) {}
-        try { isAdmin = sessionStorage.getItem("akd:admin") === (window.SITE_CONFIG.admin || {}).passwordHash; } catch (e) {}
-        drawLockState();
-      }, function () {});
-    }
-  }).then(loadNotices, loadNotices);
+    /* 배포 서버: 저장해 둔 관리자 토큰이 아직 유효하면 그대로 로그인 상태 유지 */
+    if (Store.isServer()) setAdmin(Store.canEdit());
+    else if (isAdmin && Store.mode() === "cloud" && !Store.canEdit()) setAdmin(false);
+    return loadConfig();
+  }).then(function () {
+    loadNotices();
+    if (isAdmin && lsG("adminPanel")) openPanel(); // 새로고침 전에 관리자 화면을 보고 있었으면 다시 열기
+  }, loadNotices);
 })();

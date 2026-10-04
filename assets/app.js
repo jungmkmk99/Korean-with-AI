@@ -9,6 +9,9 @@
   } catch (e) {}
 })();
 
+/* 접근 권한: admin = 관리자 로그인, approved = 관리자가 승인한 수강생 (participate.js · admin.js가 채움) */
+window.SITE_ACCESS = window.SITE_ACCESS || { known: false, admin: false, approved: false };
+
 window.renderSite = function () {
   var C = window.SITE_CONFIG;
   if (!C) { document.body.insertAdjacentHTML("afterbegin", "<p style='padding:20px'>config.js를 불러오지 못했습니다. assets 폴더에 config.js가 있는지 확인하세요.</p>"); return; }
@@ -41,8 +44,12 @@ window.renderSite = function () {
     pending: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>'
   };
   var icon = function (n) { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (ICON[n] || ICON.check) + "</svg>"; };
+  /* 제목 속 *별표*로 감싼 글자는 기울임(강조)으로 표시 */
+  var rich = function (s) { return esc(s).replace(/\*([^*]+)\*/g, "<em>$1</em>"); };
+  var plain = function (s) { return String(s == null ? "" : s).replace(/\*/g, ""); };
+  var ART = window.SITE_ART || { scenes: [], features: [], band: "", flyer: "", ctaBg: "" };
   var head = function (s) {
-    return '<div class="section-head"><span class="kicker">' + esc(s.kicker) + "</span><h2>" + esc(s.title) + "</h2>" + (s.lead ? "<p>" + esc(s.lead) + "</p>" : "") + "</div>";
+    return '<div class="section-head"><span class="kicker">' + esc(s.kicker) + "</span><h2>" + rich(s.title) + "</h2>" + (s.lead ? "<p>" + esc(s.lead) + "</p>" : "") + "</div>";
   };
   var placeholder = function (text) {
     return '<article class="card placeholder"><span class="dot">' + icon("pending") + "</span><div><h3>준비 중</h3><p>" + esc(text) + "</p></div></article>";
@@ -64,24 +71,51 @@ window.renderSite = function () {
 
   /* ---------- 첫 화면 ---------- */
   var h = C.hero;
+  var btns = function (arr) {
+    return '<div class="btn-row">' + list(arr, function (b) {
+      return '<a class="btn ' + esc(b.style || "primary") + '" href="' + esc(b.href) + '">' + esc(b.label) + "</a>";
+    }) + "</div>";
+  };
   $("#hero").innerHTML =
     '<div class="wrap hero-inner">' +
       '<div class="hero-copy">' +
-        '<span class="badge"><span class="badge-dot"></span>' + esc(h.badge) + "</span>" +
-        "<h1>" + esc(h.title).replace(/^AI/, '<span class="ai">AI</span>') + "</h1>" +
+        '<span class="badge">' + esc(h.badge) + "</span>" +
+        "<h1>" + rich(h.headline || h.title) + "</h1>" +
         '<p class="hero-sub">' + esc(h.subtitle) + "</p>" +
-        '<p class="hero-desc">' + esc(h.description) + "</p>" +
-        '<div class="btn-row">' + list(h.buttons, function (b) {
-          return '<a class="btn ' + esc(b.style || "primary") + '" href="' + esc(b.href) + '">' + esc(b.label) + "</a>";
-        }) + "</div>" +
+        btns(h.buttons) +
+        '<p class="hero-note">' + esc(C.site.org) + " · " + esc(C.site.semester) + "</p>" +
       "</div>" +
-      '<div class="hero-art" aria-hidden="true"><canvas id="petals"></canvas></div>' +
-    "</div>";
+    "</div>" +
+    '<div class="hero-strip" aria-hidden="true">' + list(ART.scenes, function (s, i) { return '<div class="scene s' + (i + 1) + '">' + s + "</div>"; }) +
+      '<div class="flyer">' + ART.flyer + "</div></div>";
+
+  /* ---------- 구글 드라이브 · YouTube 링크 (포트폴리오 · 주차별 자료) ---------- */
+  var DRIVE_KINDS = { "문서": "doc", "슬라이드": "slides", "시트": "sheet", "폴더": "folder", "파일": "doc", "영상": "video", "이미지": "image", "PDF": "doc", "설문": "doc" };
+  function driveKind(url, kind) {
+    if (kind && DRIVE_KINDS[kind]) return kind;
+    var u = String(url || "");
+    if (/docs\.google\.com\/document/.test(u)) return "문서";
+    if (/docs\.google\.com\/presentation/.test(u)) return "슬라이드";
+    if (/docs\.google\.com\/spreadsheets/.test(u)) return "시트";
+    if (/docs\.google\.com\/forms/.test(u)) return "설문";
+    if (/drive\.google\.com\/(drive\/)?(u\/\d+\/)?folders/.test(u)) return "폴더";
+    return "파일";
+  }
+  window.SITE_DRIVE = { kind: driveKind, kinds: Object.keys(DRIVE_KINDS), valid: function (u) { return /^https:\/\/(drive|docs)\.google\.com\/\S+$/.test(String(u || "").trim()); } };
+  /* YouTube 주소 → 영상 ID (watch · youtu.be · shorts · embed · live) */
+  function ytId(url) {
+    var m = String(url || "").trim().match(/^https?:\/\/(?:www\.|m\.)?(?:youtube\.com\/(?:watch\?(?:[^#]*&)?v=|embed\/|shorts\/|live\/)|youtu\.be\/|youtube-nocookie\.com\/embed\/)([A-Za-z0-9_-]{11})/);
+    return m ? m[1] : "";
+  }
+  window.SITE_YT = { id: ytId };
 
   /* ---------- 커리큘럼 · 달력 ---------- */
   var CUR = (function () {
     var cfg = C.curriculum || {};
-    var WD = ["일", "월", "화", "수", "목", "금", "토"];
+    /* 주차별 학습 내용은 관리자와 승인된 수강생에게만 보임 (서버는 승인 전이면 내용을 빼고 보냄) */
+    var AC = window.SITE_ACCESS || {}, isAdm = !!AC.admin;
+    var locked = !(AC.admin || AC.approved) || (cfg.weeks || []).some(function (w) { return w && w.locked; });
+    var WD =["일", "월", "화", "수", "목", "금", "토"];
     var pad = function (n) { return (n < 10 ? "0" : "") + n; };
     var keyOf = function (d) { return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()); };
     var parseDate = function (s) { var p = String(s).split("-"); return new Date(+p[0], +p[1] - 1, +p[2]); };
@@ -165,9 +199,33 @@ window.renderSite = function () {
     };
     var chips = function (arr, cls) { return '<div class="kc">' + list(arr, function (c) { return '<span class="kc-chip ' + (cls || "") + '">' + esc(c) + "</span>"; }) + "</div>"; };
 
+    /* 주차별 자료: 구글 드라이브 링크 + 참고 영상(YouTube는 페이지 안에서 재생) */
+    function weekRefs(r) {
+      var mats = (r.materials || []).filter(function (m) { return m && m.url; });
+      var vids = (r.videos || []).filter(function (v) { return v && v.url; });
+      return (mats.length ? '<h4>수업 자료 <small class="muted">Google Drive</small></h4><ul class="mats">' + list(mats, function (m) {
+          var k = driveKind(m.url, m.kind);
+          return '<li><a href="' + esc(m.url) + '" target="_blank" rel="noopener"><span class="mat-ic">' + icon(DRIVE_KINDS[k] || "doc") + '</span><span class="mat-t"><b>' + esc(m.title || "구글 드라이브 " + k) + "</b><small>Google Drive · " + esc(k) + "</small></span>" + icon("ext") + "</a></li>";
+        }) + "</ul>" : "") +
+        (vids.length ? '<h4>참고 영상</h4><ul class="videos">' + list(vids, function (v) {
+          var id = ytId(v.url), t = v.title || "YouTube 영상";
+          if (id) return '<li class="yt-item"><button type="button" class="yt" data-yt="' + id + '" data-title="' + esc(t) + '" aria-label="' + esc(t) + ' 재생"><img src="https://i.ytimg.com/vi/' + id + '/hqdefault.jpg" alt="" loading="lazy"><span class="yt-play" aria-hidden="true"></span></button><span class="yt-title">' + esc(t) + "</span></li>";
+          return '<li><a href="' + esc(v.url) + '" target="_blank" rel="noopener">' + icon("play") + "<span>" + esc(v.title || v.url) + "</span></a></li>";
+        }) + "</ul>" : "");
+    }
+    function weekAdmin(w) {
+      if (!isAdm) return "";
+      var i = w.n - 1;
+      return '<div class="wk-admin"><span class="chip task">관리자</span>' +
+        '<button type="button" class="btn primary sm" data-wk="edit" data-i="' + i + '">이 주차 수정</button>' +
+        '<button type="button" class="btn ghost sm" data-wk="up" data-i="' + i + '"' + (i ? "" : " disabled") + ' aria-label="' + w.n + '주차를 위로">↑</button>' +
+        '<button type="button" class="btn ghost sm" data-wk="down" data-i="' + i + '"' + (i < weeks.length - 1 ? "" : " disabled") + ' aria-label="' + w.n + '주차를 아래로">↓</button>' +
+        '<button type="button" class="btn ghost sm danger-btn" data-wk="del" data-i="' + i + '">삭제</button></div>';
+    }
+
     function weekBody(w) {
       var r = w.raw, a = r.assignment;
-      var out = '<div class="week-body">' +
+      var out = '<div class="week-body">' + weekAdmin(w) +
         '<dl class="week-meta">' +
           '<div><dt>' + icon("calendar") + "날짜</dt><dd>" + w.date.getFullYear() + ". " + esc(dateLine(w)) + "</dd></div>" +
           '<div><dt>' + icon("clock") + "시간</dt><dd>" + esc(w.time) + "</dd></div>" +
@@ -183,10 +241,7 @@ window.renderSite = function () {
             (r.homework ? '<h4>과제</h4><p class="hw">' + icon("doc") + esc(r.homework) + "</p>" : "") +
             (!(r.concepts && r.concepts.length) && !(r.content && r.content.length) && !r.homework ? '<p class="none">수업 시간에 자세히 안내합니다.</p>' : "") +
           "</div>" +
-          '<div><h4>참고 자료</h4>' + ((r.videos && r.videos.length)
-            ? '<ul class="videos">' + list(r.videos, function (v) {
-                return '<li><a href="' + esc(v.url) + '" target="_blank" rel="noopener">' + icon("play") + "<span>" + esc(v.title) + "</span></a></li>";
-              }) + "</ul>" : "") +
+          "<div>" + (weekRefs(r) || "<h4>참고 자료</h4>") +
             (cfg.materialsNote ? '<p class="none">' + esc(cfg.materialsNote) + "</p>" : "") + "</div>" +
         "</div>";
       if (a) {
@@ -204,13 +259,26 @@ window.renderSite = function () {
       return out + "</div>";
     }
 
+    /* 승인 전: 주차별 학습 내용 대신 안내 */
+    function lockedCard() {
+      var msg, btn = "";
+      if (!AC.known) msg = "수강 승인 여부를 확인하는 중입니다…";
+      else if (AC.pending) { msg = "<b>" + esc(AC.name || "") + " 님은 관리자 승인 대기 중입니다.</b> 교수자가 수강 신청을 확인하고 승인하면 이 자리에 주차별 학습 내용이 열립니다."; }
+      else { msg = "주차별 학습 내용은 <b>관리자 승인을 받은 수강생</b>만 볼 수 있습니다. 수강 신청서를 제출하거나, 이미 신청했다면 이름과 학번으로 로그인해 주세요."; btn = '<div class="btn-row"><a class="btn primary sm" href="#apply">수강 신청하기</a><a class="btn ghost sm" href="#participate">로그인하기</a></div>'; }
+      return '<div class="card wk-locked"><span class="wk-lock-ic" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="10" rx="2.5"/><path d="M8 11V7.5a4 4 0 0 1 8 0V11"/></svg></span>' +
+        '<div><h3>승인 후 볼 수 있는 내용입니다</h3><p>' + msg + "</p>" + btn + "</div></div>";
+    }
+
     function render() {
-      var upcoming = weeks.filter(function (w) { return w.due && w.due > new Date(); })[0];
+      var upcoming = locked ? null : weeks.filter(function (w) { return w.due && w.due > new Date(); })[0];
       var html = '<section id="curriculum"><div class="wrap">' +
         '<div class="head-row">' + head(cfg) +
           (upcoming ? '<a class="next-due card" href="#week-' + upcoming.n + '" data-open="' + upcoming.n + '"><span class="nd-label">다가오는 마감</span><strong>' + esc(upcoming.raw.assignment.title) + "</strong>" + remainPill(upcoming) + "</a>" : "") +
         "</div>" +
-        '<div class="week-tools"><button type="button" class="text-btn" id="openAll">모두 펼치기</button><button type="button" class="text-btn" id="closeAll">모두 접기</button></div>' +
+        (locked ? lockedCard() :
+        '<div class="week-tools">' + (isAdm ? '<button type="button" class="btn primary sm wk-add" data-wk="add">+ 주차 추가</button>' : "") +
+          '<button type="button" class="text-btn" id="openAll">모두 펼치기</button><button type="button" class="text-btn" id="closeAll">모두 접기</button></div>' +
+        (!weeks.length ? '<p class="adm-empty">아직 등록된 주차가 없습니다.' + (isAdm ? " ‘+ 주차 추가’를 눌러 시작하세요." : "") + "</p>" : "") +
         '<div class="weeks">' + list(weeks, function (w) {
           var isNext = nextWeek && w.n === nextWeek.n;
           return '<details class="week card' + (w.end < today && !isNext ? " is-past" : "") + '" id="week-' + w.n + '"' + (isNext ? " open" : "") + ">" +
@@ -220,7 +288,7 @@ window.renderSite = function () {
               '<span class="wk-chips">' + statusChip(w) + (w.raw.badge ? '<span class="chip exam">' + esc(w.raw.badge) + "</span>" : "") + (w.raw.assignment ? '<span class="chip task">과제</span>' : "") + "</span>" +
               '<span class="wk-chev">' + icon("chev") + "</span>" +
             "</summary>" + weekBody(w) + "</details>";
-        }) + "</div>" +
+        }) + "</div>") +
         '<div class="cal-wrap" id="calendar">' +
           '<h3 class="sub-title">월간 수업 달력</h3>' +
           '<div class="cal-grid-wrap">' +
@@ -285,6 +353,12 @@ window.renderSite = function () {
               (nextSession ? '<button type="button" class="text-btn" data-jump="' + nextSession.key + '">다음 수업 보기 (' + fmtDay(nextSession.date) + ")</button>" : "") + "</div>";
             return;
           }
+          if (locked) {
+            h += '<div class="cp-class"><span class="chip task-soft">' + s.n + "주차 " + esc(s.day) + "요일 수업</span>" +
+              '<p class="cp-meta">' + icon("clock") + esc(s.w.time) + '</p><p class="cp-meta">' + icon("pin") + esc(s.w.location) + "</p>" +
+              '<p class="cp-note">' + icon("pending") + "수업 내용은 관리자 승인 후 볼 수 있습니다.</p></div>";
+            return;
+          }
           h += '<div class="cp-class"><span class="chip task-soft">' + s.n + "주차 " + esc(s.day) + "요일 수업</span>" + (r.badge ? ' <span class="chip exam">' + esc(r.badge) + "</span>" : "") + "<h4>" + esc(s.title) + "</h4>" +
             '<p class="cp-meta">' + icon("clock") + esc(s.w.time) + "</p>" +
             '<p class="cp-meta">' + icon("pin") + esc(s.w.location) + "</p>" +
@@ -294,7 +368,8 @@ window.renderSite = function () {
             '<button type="button" class="btn ghost sm" data-open="' + s.n + '">' + s.n + "주차 자세히 보기</button></div>";
         });
         ev.due.forEach(function (w) {
-          h += '<div class="cp-due"><span class="chip due">과제 마감</span><h4>' + esc(w.raw.assignment.title) + "</h4>" +
+          if (locked) return;
+          h +='<div class="cp-due"><span class="chip due">과제 마감</span><h4>' + esc(w.raw.assignment.title) + "</h4>" +
             '<p class="cp-meta">' + icon("clock") + "마감 " + pad(w.due.getHours()) + ":" + pad(w.due.getMinutes()) + "</p>" + remainPill(w) +
             '<button type="button" class="btn ghost sm" data-open="' + w.n + '">과제 보기</button></div>';
         });
@@ -321,8 +396,32 @@ window.renderSite = function () {
     }
 
     var minMonth, maxMonth;
+    function onClick(e) {
+      var o = e.target.closest("[data-open]"); if (o) { e.preventDefault(); openWeek(+o.dataset.open); return; }
+      var j = e.target.closest("[data-jump]"); if (j) { select(j.dataset.jump); return; }
+      var y = e.target.closest("[data-yt]");
+      if (y) {
+        var f = document.createElement("div"); f.className = "yt-frame";
+        f.innerHTML = '<iframe src="https://www.youtube-nocookie.com/embed/' + esc(y.dataset.yt) + '?autoplay=1&rel=0" title="' + esc(y.dataset.title || "YouTube 영상") + '" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>';
+        y.replaceWith(f); return;
+      }
+      /* 관리자: 주차 추가·수정·삭제·순서 (admin.js가 처리) */
+      var k = e.target.closest("[data-wk]");
+      if (k && !k.disabled) {
+        if (k.dataset.wk === "del" && k.dataset.confirm !== "1") { k.dataset.confirm = "1"; k.textContent = "한 번 더 누르면 삭제"; return; }
+        document.dispatchEvent(new CustomEvent("site:week", { detail: { act: k.dataset.wk, i: k.dataset.i == null ? -1 : +k.dataset.i } }));
+        return;
+      }
+      var s = e.target.closest(".submit-btn");
+      if (s) document.dispatchEvent(new CustomEvent("site:submit", { detail: { week: +s.dataset.week } }));
+    }
     function init() {
-      if (!weeks.length) return;
+      $("#curriculum").addEventListener("click", onClick);
+      if ($("#openAll")) {
+        $("#openAll").addEventListener("click", function () { document.querySelectorAll(".week").forEach(function (d) { d.open = true; }); });
+        $("#closeAll").addEventListener("click", function () { document.querySelectorAll(".week").forEach(function (d) { d.open = false; }); });
+      }
+      if (!sessions.length) { var cw = $("#calendar"); if (cw) cw.hidden = true; return; }
       var allDates = sessions.map(function (s) { return s.date; }).concat(weeks.filter(function (w) { return w.due; }).map(function (w) { return w.due; }));
       allDates = allDates.concat(Object.keys(evs).concat(Object.keys(hol)).map(parseDate));
       var lo = new Date(Math.min.apply(null, allDates)), hi = new Date(Math.max.apply(null, allDates));
@@ -333,33 +432,12 @@ window.renderSite = function () {
       $("#calPrev").addEventListener("click", function () { view = new Date(view.getFullYear(), view.getMonth() - 1, 1); drawCal(); });
       $("#calNext").addEventListener("click", function () { view = new Date(view.getFullYear(), view.getMonth() + 1, 1); drawCal(); });
       $("#calCells").addEventListener("click", function (e) { var b = e.target.closest("[data-key]"); if (b) select(b.dataset.key); });
-      $("#curriculum").addEventListener("click", function (e) {
-        var o = e.target.closest("[data-open]"); if (o) { e.preventDefault(); openWeek(+o.dataset.open); return; }
-        var j = e.target.closest("[data-jump]"); if (j) { select(j.dataset.jump); return; }
-        var s = e.target.closest(".submit-btn");
-        if (s) document.dispatchEvent(new CustomEvent("site:submit", { detail: { week: +s.dataset.week } }));
-      });
-      $("#openAll").addEventListener("click", function () { document.querySelectorAll(".week").forEach(function (d) { d.open = true; }); });
-      $("#closeAll").addEventListener("click", function () { document.querySelectorAll(".week").forEach(function (d) { d.open = false; }); });
       clearInterval(window.__dueTimer); window.__dueTimer = setInterval(tickDue, 30000);
     }
-    return { render: render, init: init, weeks: weeks, sessions: sessions, keyOf: keyOf, fmtDay: fmtDay, fmtDue: fmtDue, remain: remain, parseDate: parseDate };
+    return { locked: locked, render: render, init: init, weeks: weeks, sessions: sessions, keyOf: keyOf, fmtDay: fmtDay, fmtDue: fmtDue, remain: remain, parseDate: parseDate };
   })();
-  window.SITE_RUNTIME = { weeks: CUR.weeks, sessions: CUR.sessions, keyOf: CUR.keyOf, fmtDay: CUR.fmtDay, fmtDue: CUR.fmtDue, remain: CUR.remain, esc: esc, icon: icon, head: head };
+  window.SITE_RUNTIME = { locked: CUR.locked, weeks: CUR.weeks, sessions: CUR.sessions, keyOf: CUR.keyOf, fmtDay: CUR.fmtDay, fmtDue: CUR.fmtDue, remain: CUR.remain, esc: esc, icon: icon, head: head };
 
-  /* ---------- 포트폴리오 (구글 드라이브 링크) ---------- */
-  var DRIVE_KINDS = { "문서": "doc", "슬라이드": "slides", "시트": "sheet", "폴더": "folder", "파일": "doc", "영상": "video", "이미지": "image", "PDF": "doc", "설문": "doc" };
-  function driveKind(url, kind) {
-    if (kind && DRIVE_KINDS[kind]) return kind;
-    var u = String(url || "");
-    if (/docs\.google\.com\/document/.test(u)) return "문서";
-    if (/docs\.google\.com\/presentation/.test(u)) return "슬라이드";
-    if (/docs\.google\.com\/spreadsheets/.test(u)) return "시트";
-    if (/docs\.google\.com\/forms/.test(u)) return "설문";
-    if (/drive\.google\.com\/(drive\/)?(u\/\d+\/)?folders/.test(u)) return "폴더";
-    return "파일";
-  }
-  window.SITE_DRIVE = { kind: driveKind, kinds: Object.keys(DRIVE_KINDS), valid: function (u) { return /^https:\/\/(drive|docs)\.google\.com\/\S+$/.test(String(u || "").trim()); } };
   function renderPortfolio(P) {
     if (!P) return "";
     var items = P.items || [], cats = (P.categories || []).filter(function (c) { return items.some(function (it) { return it.category === c; }); });
@@ -411,9 +489,22 @@ window.renderSite = function () {
   var toolCount = (C.tools && C.tools.items || []).length;
   var html = '<div id="notices" class="sec-notices" hidden><div class="wrap"><div id="noticeMount"></div></div></div>';
 
-  // 프로그램 소개: 개요 + 숫자 카드
+  // 강의 특징 (손그림 아이콘 + 짧은 설명)
+  var st = C.strengths;
+  html += '<section class="sec-strengths" aria-label="' + esc(plain(st.title)) + '"><div class="wrap">' + head(st) +
+    '<div class="features">' + list(st.items, function (it, i) {
+      return '<article class="feature">' + (ART.features.length ? '<div class="feature-art">' + ART.features[i % ART.features.length] + "</div>" : "") +
+        "<h3>" + esc(it.title) + "</h3><p>" + esc(it.body) + "</p></article>";
+    }) + "</div>" +
+  "</div></section>";
+
+  // 프로그램 소개: 연한 초록 띠 + 개요 + 숫자 카드
+  var it0 = C.intro || {};
   html += '<section id="intro" class="sec-intro"><div class="wrap">' +
-    '<div class="section-head"><span class="kicker">About</span><h2>강의 한눈에 보기</h2><p>' + esc(C.site.org) + " · " + esc(C.site.semester) + "</p></div>" +
+    '<div class="band">' +
+      '<div class="band-copy"><span class="kicker">' + esc(it0.kicker || "About") + "</span><h2>" + rich(it0.title || "강의 *한눈에* 보기") + "</h2><p>" + esc(it0.lead || h.description) + "</p></div>" +
+      '<div class="band-art">' + ART.band + "</div>" +
+    "</div>" +
     '<div class="overview">' + list(C.overview, function (o) {
       return '<div class="ov-item"><span class="ov-icon">' + icon(o.icon) + '</span><div class="ov-text"><span class="ov-label">' + esc(o.label) + '</span><strong class="ov-value">' + esc(o.value) + "</strong>" + (o.note ? '<span class="ov-note">' + esc(o.note) + "</span>" : "") + "</div></div>";
     }) + "</div>" +
@@ -425,20 +516,6 @@ window.renderSite = function () {
 
   // 강의계획서
   html += renderSyllabus(C.syllabus);
-
-  // 강의 장점 슬라이드
-  var st = C.strengths;
-  html += '<section class="sec-strengths" aria-roledescription="carousel" aria-label="' + esc(st.title) + '"><div class="wrap">' +
-    '<div class="head-row">' + head(st) +
-      '<div class="slider-ctrl"><button type="button" class="round-btn" id="slPrev" aria-label="이전 장점">' + icon("arrowL") + '</button><button type="button" class="round-btn" id="slNext" aria-label="다음 장점">' + icon("arrowR") + "</button></div>" +
-    "</div>" +
-    '<div class="slider" id="slider" tabindex="0">' + list(st.items, function (it, i) {
-      return '<article class="slide card" aria-label="' + (i + 1) + " / " + st.items.length + '"><span class="slide-no">' + String(i + 1).padStart(2, "0") + "</span><h3>" + esc(it.title) + "</h3><p>" + esc(it.body) + "</p></article>";
-    }) + "</div>" +
-    '<div class="dots" id="dots">' + list(st.items, function (it, i) {
-      return '<button type="button" aria-label="' + (i + 1) + '번째 장점 보기" data-i="' + i + '"></button>';
-    }) + "</div>" +
-  "</div></section>";
 
   // AI 도구
   var t = C.tools;
@@ -476,6 +553,12 @@ window.renderSite = function () {
       return '<details class="card qa"' + (i === 0 ? " open" : "") + '><summary><span class="q">Q</span><span class="q-text">' + esc(it.q) + '</span><span class="plus">' + icon("plus") + '</span></summary><div class="a"><p>' + esc(it.a) + "</p></div></details>";
     }) + "</div></div></section>";
 
+  // 마지막 안내 (손그림 배경)
+  var cta = C.cta || { title: "다음 학기의 *주인공*을 기다립니다", body: C.site.semester + " 수강 신청을 놓치지 마세요!", buttons: [{ label: "수강 신청서 작성하기", href: "#apply", style: "primary" }] };
+  html += '<section class="sec-cta"><div class="cta-bg">' + ART.ctaBg + '</div><div class="wrap narrow cta-inner">' +
+    "<h2>" + rich(cta.title) + "</h2>" + (cta.body ? "<p>" + esc(cta.body) + "</p>" : "") + btns(cta.buttons) +
+  "</div></section>";
+
   $("#main").innerHTML = html;
   CUR.init();
   var pfF = $(".pf-filter");
@@ -488,6 +571,7 @@ window.renderSite = function () {
 
   /* ---------- 푸터: 교수자 ---------- */
   var p = C.instructor;
+  var mail = (p.contacts || []).filter(function (c) { return c.type === "email"; })[0];
   var photo = p.photo
     ? '<img src="' + esc(p.photo) + '" alt="' + esc(p.name) + ' 교수 사진">'
     : '<span class="avatar-fallback" aria-label="' + esc(p.name) + ' 교수">' + esc(p.name.charAt(0)) + "</span>";
@@ -503,7 +587,11 @@ window.renderSite = function () {
           return "<div><dt>" + esc(c.label) + "</dt><dd>" + val + "</dd></div>";
         }) + "</dl>" +
       "</div>" +
-      '<div class="footer-bottom"><p class="copyright">' + esc(C.site.footerNote) + "</p></div>" +
+      '<div class="footer-bottom">' +
+        '<a class="foot-brand" href="#top"><img src="assets/logo.png" alt="" width="235" height="176"><b>' + esc(C.site.title) + "</b></a>" +
+        '<p class="copyright">' + esc(C.site.footerNote) + "</p>" +
+        (mail ? '<p class="foot-mail">Say <a href="mailto:' + esc(mail.value) + '">' + esc(mail.value) + "</a></p>" : "") +
+      "</div>" +
     "</div>";
 
   /* 이메일 복사 */
@@ -517,31 +605,6 @@ window.renderSite = function () {
     };
     if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, fallback); else fallback();
   });
-
-  /* ---------- 장점 슬라이드 ---------- */
-  var slider = $("#slider"), dots = Array.prototype.slice.call(document.querySelectorAll("#dots button"));
-  var slides = Array.prototype.slice.call(slider.querySelectorAll(".slide"));
-  function step() { return slides.length > 1 ? slides[1].offsetLeft - slides[0].offsetLeft : slider.clientWidth; }
-  function current() { return Math.round(slider.scrollLeft / step()); }
-  function go(i) { i = Math.max(0, Math.min(slides.length - 1, i)); slider.scrollTo({ left: slides[i].offsetLeft - slides[0].offsetLeft, behavior: "smooth" }); }
-  function sync() {
-    var i = current(), max = slider.scrollWidth - slider.clientWidth - 2;
-    if (slider.scrollLeft >= max) i = slides.length - 1;
-    dots.forEach(function (d, k) { d.classList.toggle("on", k === i); d.setAttribute("aria-current", k === i ? "true" : "false"); });
-    $("#slPrev").disabled = slider.scrollLeft <= 2;
-    $("#slNext").disabled = slider.scrollLeft >= max;
-  }
-  $("#slPrev").addEventListener("click", function () { go(current() - 1); });
-  $("#slNext").addEventListener("click", function () { go(current() + 1); });
-  dots.forEach(function (d) { d.addEventListener("click", function () { go(+d.dataset.i); }); });
-  slider.addEventListener("keydown", function (e) {
-    if (e.key === "ArrowRight") { e.preventDefault(); go(current() + 1); }
-    if (e.key === "ArrowLeft") { e.preventDefault(); go(current() - 1); }
-  });
-  slider.addEventListener("scroll", function () { window.requestAnimationFrame(sync); }, { passive: true });
-  window.__sliderSync = sync;
-  if (!window.__siteBound) window.addEventListener("resize", function () { window.__sliderSync && window.__sliderSync(); });
-  sync();
 
   /* ---------- 모바일 메뉴 ---------- */
   var nav = $("#nav"), toggle = $("#menuToggle");
@@ -575,65 +638,6 @@ window.renderSite = function () {
   }
   onScroll();
 
-  /* ---------- 첫 화면 그림: 천천히 떨어지는 벚꽃잎 ---------- */
-  var cv = document.getElementById("petals");
-  if (cv && cv.getContext) {
-    var ctx = cv.getContext("2d");
-    var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    var css = getComputedStyle(document.documentElement);
-    var W, H, petals = [];
-    function colors() { return [css.getPropertyValue("--blossom").trim() || "#e2779f", css.getPropertyValue("--lilac").trim() || "#8f74cf"]; }
-    function size() {
-      var dpr = Math.min(window.devicePixelRatio || 1, 2);
-      W = cv.clientWidth; H = cv.clientHeight;
-      cv.width = W * dpr; cv.height = H * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    }
-    function seed() {
-      petals = [];
-      for (var i = 0; i < 26; i++) petals.push({
-        x: Math.random() * W, y: Math.random() * H, r: 6 + Math.random() * 9,
-        a: Math.random() * Math.PI * 2, va: (Math.random() - .5) * .02,
-        vy: .25 + Math.random() * .45, sway: Math.random() * Math.PI * 2, c: i % 3 === 0 ? 1 : 0, o: .35 + Math.random() * .5
-      });
-    }
-    function petal(p, col) {
-      ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.a); ctx.globalAlpha = p.o; ctx.fillStyle = col;
-      ctx.beginPath(); ctx.moveTo(0, -p.r);
-      ctx.bezierCurveTo(p.r * .9, -p.r * .6, p.r * .7, p.r * .7, 0, p.r);
-      ctx.bezierCurveTo(-p.r * .7, p.r * .7, -p.r * .9, -p.r * .6, 0, -p.r);
-      ctx.fill(); ctx.restore();
-    }
-    function flower(cols) {
-      var R = Math.min(W, H) * .2;
-      ctx.save(); ctx.translate(W / 2, H / 2);
-      for (var i = 0; i < 5; i++) {
-        ctx.save(); ctx.rotate(i * Math.PI * 2 / 5); ctx.fillStyle = cols[0]; ctx.globalAlpha = .9;
-        ctx.beginPath(); ctx.moveTo(0, 0);
-        ctx.bezierCurveTo(R * .9, -R * .5, R * .7, -R * 1.6, R * .12, -R * 1.5);
-        ctx.lineTo(0, -R * 1.32); ctx.lineTo(-R * .12, -R * 1.5);
-        ctx.bezierCurveTo(-R * .7, -R * 1.6, -R * .9, -R * .5, 0, 0);
-        ctx.fill(); ctx.restore();
-      }
-      ctx.fillStyle = cols[1]; ctx.globalAlpha = 1;
-      ctx.beginPath(); ctx.arc(0, 0, R * .22, 0, Math.PI * 2); ctx.fill(); ctx.restore();
-    }
-    function draw() { var cols = colors(); ctx.clearRect(0, 0, W, H); flower(cols); petals.forEach(function (p) { petal(p, cols[p.c]); }); }
-    function tick() {
-      petals.forEach(function (p) {
-        p.sway += .012; p.y += p.vy; p.x += Math.sin(p.sway) * .35; p.a += p.va;
-        if (p.y - p.r > H) { p.y = -p.r; p.x = Math.random() * W; }
-      });
-      draw(); window.__petalRaf = requestAnimationFrame(tick);
-    }
-    cancelAnimationFrame(window.__petalRaf);
-    size(); seed(); draw();
-    window.__petalHooks = { resize: function () { size(); seed(); draw(); }, draw: draw };
-    if (!window.__siteBound) {
-      window.addEventListener("resize", function () { window.__petalHooks && window.__petalHooks.resize(); });
-      if (window.matchMedia) window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", function () { window.__petalHooks && window.__petalHooks.draw(); });
-    }
-    if (!reduce) window.__petalRaf = requestAnimationFrame(tick);
-  }
   window.__siteBound = true;
 };
 window.renderSite();
