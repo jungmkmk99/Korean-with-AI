@@ -156,7 +156,7 @@
         return j;
       });
     }
-    /* 지금 적용할 사이트 설정(승인 전이면 주차별 학습 내용이 빠진 것) */
+    /* 지금 적용할 사이트 설정(승인 전이면 주차별 자료 · 영상이 빠진 것) */
     function fetchConfig() { return server ? api("GET", "/api/config") : Promise.reject({ code: "no_server" }); }
     return {
       init: init, get: get, set: set, del: del, list: list, watchDoc: watchDoc, watchCollection: watchCollection,
@@ -204,7 +204,7 @@
   var me = null; // 로그인 정보 {name, studentId}
 
   /* ================= 접근 권한 (관리자 승인) =================
-     승인된 수강생과 관리자만 '주차별 학습' 내용을 봅니다. 배포 서버에서는 서버가 승인 여부를 확인해 내용 자체를 보내지 않습니다. */
+     주차별 강의 계획은 누구나 보고, 구글 드라이브 자료 · 참고 영상 · 과제 제출은 승인된 수강생과 관리자만 씁니다. 배포 서버는 승인 전이면 자료 · 영상을 아예 보내지 않습니다. */
   var ACC = window.SITE_ACCESS = window.SITE_ACCESS || { known: false, admin: false, approved: false };
   var accTimer = null, accKey = "";
   var nm = function (s) { return String(s || "").replace(/\s+/g, ""); };
@@ -232,8 +232,8 @@
     if (me) {
       el.innerHTML = '<div class="login-done"><span class="avatar">' + esc(me.name.charAt(0)) + '</span><div><span class="kicker">로그인됨</span><h3>' + esc(me.name) + ' 님</h3><p class="muted">학번 ' + esc(me.studentId) + '</p></div></div>' +
         (ACC.known && !ACC.admin ? (ACC.approved
-          ? '<p class="appr ok"><span class="chip now">승인됨</span> 주차별 학습 내용을 볼 수 있습니다.</p>'
-          : '<p class="appr"><span class="chip past">승인 대기</span> 교수자가 승인하면 주차별 학습 내용이 열립니다.</p>') : "") +
+          ? '<p class="appr ok"><span class="chip now">승인됨</span> 수업 자료 · 참고 영상을 보고 과제를 제출할 수 있습니다.</p>'
+          : '<p class="appr"><span class="chip past">승인 대기</span> 교수자가 승인하면 수업 자료 · 참고 영상과 과제 제출이 열립니다.</p>') : "") +
         '<button type="button" class="text-btn" id="relogin">다른 학번으로 로그인</button>';
       $("#relogin").addEventListener("click", function () { me = null; drawLogin(); drawAttend(); drawSubmit(); refreshAccess(false); });
       return;
@@ -345,7 +345,7 @@
   function fmtSize(b) { return b > 1048576 ? (b / 1048576).toFixed(1) + "MB" : Math.max(1, Math.round(b / 1024)) + "KB"; }
   function drawSubmit() {
     var el = $("#submitCard"), S = P.submission || {};
-    if (R.locked) { el.innerHTML = '<span class="kicker">Assignment</span><h3>과제 제출</h3><p class="muted">관리자 승인을 받으면 과제를 확인하고 제출할 수 있습니다.</p>'; return; }
+    if (R.locked) { el.innerHTML = '<span class="kicker">Assignment</span><h3>과제 제출</h3><p class="muted">과제 안내는 ‘주차별 강의 계획’에서 볼 수 있고, 제출은 관리자 승인을 받은 뒤에 할 수 있습니다.</p>'; return; }
     if (!assignWeeks.length) { el.innerHTML = '<h3>과제 제출</h3><p class="muted">등록된 과제가 없습니다.</p>'; return; }
     if (selWeek == null) selWeek = defaultWeek();
     var w = assignWeeks.filter(function (x) { return x.n === selWeek; })[0] || assignWeeks[0];

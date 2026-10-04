@@ -1107,3 +1107,9 @@ input:focus, select:focus, textarea:focus { border-color: var(--blossom); box-sh
 }
 /* 상단 메뉴 '과제 제출'로 이동할 때 머리글에 가리지 않게 */
 #submitCard { scroll-margin-top: calc(var(--header-h) + 16px); }
+/* 승인 전: 주차별 자료 · 영상 · 과제 제출 잠금 안내 */
+.ref-lock { display: flex; align-items: flex-start; gap: 8px; margin: 0; padding: 10px 12px; border: 1px dashed var(--line); border-radius: 4px; color: var(--muted); font-size: .88rem; }
+.ref-lock svg { width: 16px; height: 16px; flex: none; margin-top: 2px; color: var(--lilac); }
+.ref-lock a { color: var(--lilac); font-weight: 600; }
+.ref-lock.small { padding: 6px 10px; font-size: .84rem; align-items: center; }
+.ref-lock.small svg { margin-top: 0; }

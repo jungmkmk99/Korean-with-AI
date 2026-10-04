@@ -103,8 +103,8 @@
   }
   window.SITE_RERENDER = rerender;
   function applyConfig(cfg, persist) {
-    /* 승인 전 사본(주차별 학습 내용이 빠진 설정)은 절대 저장하지 않음 */
-    if (persist && ((cfg.curriculum || {}).weeks || []).some(function (w) { return w && w.locked; })) return Promise.reject({ code: "locked_weeks" });
+    /* 승인 전 사본(주차별 자료 · 영상이 빠진 설정)은 절대 저장하지 않음 */
+    if (persist && ((cfg.curriculum || {}).weeks || []).some(function (w) { return w && (w.locked || w.restricted); })) return Promise.reject({ code: "locked_weeks" });
     window.SITE_CONFIG = cfg;
     rerender();
     loadNotices();
@@ -134,7 +134,7 @@
     return null;
   }
 
-  /* 지금 적용할 설정 불러오기: 배포 서버는 권한에 맞는 설정(승인 전이면 주차별 학습 내용 제외)을 보내 줌 */
+  /* 지금 적용할 설정 불러오기: 배포 서버는 권한에 맞는 설정(승인 전이면 주차별 자료 · 영상 제외)을 보내 줌 */
   function loadConfig() {
     if (Store.isServer()) return Store.fetchConfig().then(function (j) {
       var cfg = JSON.parse(j.json);
@@ -598,7 +598,7 @@
     if (v.materials.length) w.materials = v.materials; else delete w.materials;
     if (v.homework) w.homework = v.homework; else delete w.homework;
     if (v.hasAssign) w.assignment = Object.assign({}, (old && old.assignment) || {}, { title: v.aTitle, desc: v.aDesc, due: v.aDue }); else delete w.assignment;
-    delete w.locked;
+    delete w.locked; delete w.restricted;
     return w;
   }
   function saveWeeks(mutate, msg) {
@@ -658,7 +658,7 @@
   function openWeekEditor(i) {
     if (!isAdmin) return;
     var list = (window.SITE_CONFIG.curriculum || {}).weeks || [], isNew = !(i >= 0 && i < list.length), old = isNew ? null : list[i];
-    if (old && old.locked) { toast("주차 내용을 아직 불러오지 못했습니다. 새로고침한 뒤 다시 시도해 주세요."); return; }
+    if (old && (old.locked || old.restricted)) { toast("주차 내용을 아직 불러오지 못했습니다. 새로고침한 뒤 다시 시도해 주세요."); return; }
     var days = curDays(), pre = "we-", f = weekToForm(old, days);
     var top = [
       { key: "topic", label: "주차 제목", type: "text", required: true, wide: true, placeholder: "예: AI 활용 번역 (1): 한국어 → 모어 번역" },
@@ -1022,7 +1022,7 @@
     var av = function (p, k) { var x = p.app && p.app[k]; return x ? esc(x) : "–"; };
     body.innerHTML = sbar("👥 수강생 현황 <small class=\"muted\">" + ps.length + "명</small>",
         (nWait ? '<button type="button" class="btn primary sm" id="apAll">대기 중 ' + nWait + "명 모두 승인</button>" : "") + dlBtn("dlStu")) +
-      '<p class="muted small">수강 신청서를 내거나 로그인한 수강생이 모두 여기에 모입니다. <b>승인</b>한 수강생만 사이트의 ‘주차별 학습’ 내용을 볼 수 있으며, 승인하면 학생 화면은 30초 안에 자동으로 열립니다.</p>' +
+      '<p class="muted small">수강 신청서를 내거나 로그인한 수강생이 모두 여기에 모입니다. 주차별 강의 계획은 누구나 볼 수 있고, <b>승인</b>한 수강생만 주차별 구글 드라이브 자료 · 참고 영상을 보고 과제를 제출할 수 있습니다. 승인하면 학생 화면은 30초 안에 자동으로 열립니다.</p>' +
       '<div class="pf-filter st-filter" role="toolbar" aria-label="승인 상태로 거르기">' + [["all", "전체", ps.length], ["wait", "승인 대기", nWait], ["ok", "승인됨", nOk]].map(function (f) {
         return '<button type="button" class="pf-chip' + (stFilter === f[0] ? " on" : "") + '" data-stf="' + f[0] + '" aria-pressed="' + (stFilter === f[0]) + '">' + f[1] + " <small>" + f[2] + "</small></button>";
       }).join("") + "</div>" +

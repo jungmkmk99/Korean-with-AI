@@ -133,9 +133,10 @@ window.renderSite = function () {
   /* ---------- 커리큘럼 · 달력 ---------- */
   var CUR = (function () {
     var cfg = C.curriculum || {};
-    /* 주차별 학습 내용은 관리자와 승인된 수강생에게만 보임 (서버는 승인 전이면 내용을 빼고 보냄) */
+    /* 주차별 강의 계획은 누구나 봄. 구글 드라이브 자료 · 참고 영상 · 과제 제출만 관리자와 승인된 수강생에게 열림
+       (서버는 승인 전이면 자료 · 영상을 빼고 보냄) */
     var AC = window.SITE_ACCESS || {}, isAdm = !!AC.admin;
-    var locked = !(AC.admin || AC.approved) || (cfg.weeks || []).some(function (w) { return w && w.locked; });
+    var locked = !(AC.admin || AC.approved) || (cfg.weeks || []).some(function (w) { return w && w.restricted; });
     var WD =["일", "월", "화", "수", "목", "금", "토"];
     var pad = function (n) { return (n < 10 ? "0" : "") + n; };
     var keyOf = function (d) { return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()); };
@@ -222,6 +223,7 @@ window.renderSite = function () {
 
     /* 주차별 자료: 구글 드라이브 링크 + 참고 영상(YouTube는 페이지 안에서 재생) */
     function weekRefs(r) {
+      if (locked) return '<h4>수업 자료 · 참고 영상</h4><p class="ref-lock">' + LOCK_SVG + "<span>" + lockMsg() + "</span></p>";
       var mats = (r.materials || []).filter(function (m) { return m && m.url; });
       var vids = (r.videos || []).filter(function (v) { return v && v.url; });
       return (mats.length ? '<h4>수업 자료 <small class="muted">Google Drive</small></h4><ul class="mats">' + list(mats, function (m) {
@@ -233,6 +235,12 @@ window.renderSite = function () {
           if (id) return '<li class="yt-item"><button type="button" class="yt" data-yt="' + id + '" data-title="' + esc(t) + '" aria-label="' + esc(t) + ' 재생"><img src="https://i.ytimg.com/vi/' + id + '/hqdefault.jpg" alt="" loading="lazy"><span class="yt-play" aria-hidden="true"></span></button><span class="yt-title">' + esc(t) + "</span></li>";
           return '<li><a href="' + esc(v.url) + '" target="_blank" rel="noopener">' + icon("play") + "<span>" + esc(v.title || v.url) + "</span></a></li>";
         }) + "</ul>" : "");
+    }
+    var LOCK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2.5"/><path d="M8 11V7.5a4 4 0 0 1 8 0V11"/></svg>';
+    function lockMsg() {
+      if (!AC.known) return "승인 여부를 확인하는 중입니다…";
+      if (AC.pending) return "관리자 승인 대기 중입니다. 승인되면 구글 드라이브 자료와 참고 영상이 열립니다.";
+      return '구글 드라이브 자료와 참고 영상은 관리자 승인을 받은 수강생만 볼 수 있습니다. <a href="#apply">수강 신청</a> 또는 <a href="#participate">로그인</a>해 주세요.';
     }
     function weekAdmin(w) {
       if (!isAdm) return "";
@@ -265,7 +273,8 @@ window.renderSite = function () {
           '<div class="assign-head"><span class="assign-icon">' + icon("doc") + '</span><div><h4>' + esc(a.title) + '</h4><p class="assign-due">' + (w.due ? "마감 " + esc(fmtDue(w.due)) : "제출 기한 추후 공지") + "</p></div>" + (w.due ? remainPill(w) : "") + "</div>" +
           '<p class="assign-desc">' + esc(a.desc) + "</p>" +
           '<div class="assign-foot">' +
-            (cfg.submitUrl || a.submitUrl
+            (locked ? '<span class="ref-lock small">' + LOCK_SVG + "<span>승인된 수강생만 제출할 수 있습니다.</span></span>"
+              : cfg.submitUrl || a.submitUrl
               ? '<a class="btn primary sm" href="' + esc(a.submitUrl || cfg.submitUrl) + '" target="_blank" rel="noopener">' + icon("upload") + "과제 제출하기</a>"
               : '<button type="button" class="btn primary sm submit-btn" data-week="' + w.n + '">' + icon("upload") + "과제 제출하기</button>") +
             '<span class="submit-msg" role="status"></span>' +
@@ -275,24 +284,13 @@ window.renderSite = function () {
       return out + "</div>";
     }
 
-    /* 승인 전: 주차별 학습 내용 대신 안내 */
-    function lockedCard() {
-      var msg, btn = "";
-      if (!AC.known) msg = "수강 승인 여부를 확인하는 중입니다…";
-      else if (AC.pending) { msg = "<b>" + esc(AC.name || "") + " 님은 관리자 승인 대기 중입니다.</b> 교수자가 수강 신청을 확인하고 승인하면 이 자리에 주차별 학습 내용이 열립니다."; }
-      else { msg = "주차별 학습 내용은 <b>관리자 승인을 받은 수강생</b>만 볼 수 있습니다. 수강 신청서를 제출하거나, 이미 신청했다면 이름과 학번으로 로그인해 주세요."; btn = '<div class="btn-row"><a class="btn primary sm" href="#apply">수강 신청하기</a><a class="btn ghost sm" href="#participate">로그인하기</a></div>'; }
-      return '<div class="card wk-locked"><span class="wk-lock-ic" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="10" rx="2.5"/><path d="M8 11V7.5a4 4 0 0 1 8 0V11"/></svg></span>' +
-        '<div><h3>승인 후 볼 수 있는 내용입니다</h3><p>' + msg + "</p>" + btn + "</div></div>";
-    }
-
     function render() {
-      var upcoming = locked ? null : weeks.filter(function (w) { return w.due && w.due > new Date(); })[0];
+      var upcoming = weeks.filter(function (w) { return w.due && w.due > new Date(); })[0];
       var html = '<section id="curriculum"><div class="wrap">' +
         '<div class="head-row">' + head(cfg) +
           (upcoming ? '<a class="next-due card" href="#week-' + upcoming.n + '" data-open="' + upcoming.n + '"><span class="nd-label">다가오는 마감</span><strong>' + esc(upcoming.raw.assignment.title) + "</strong>" + remainPill(upcoming) + "</a>" : "") +
         "</div>" +
-        (locked ? lockedCard() :
-        '<div class="week-tools">' + (isAdm ? '<button type="button" class="btn primary sm wk-add" data-wk="add">+ 주차 추가</button>' : "") +
+        ('<div class="week-tools">' + (isAdm ? '<button type="button" class="btn primary sm wk-add" data-wk="add">+ 주차 추가</button>' : "") +
           '<button type="button" class="text-btn" id="openAll">모두 펼치기</button><button type="button" class="text-btn" id="closeAll">모두 접기</button></div>' +
         (!weeks.length ? '<p class="adm-empty">아직 등록된 주차가 없습니다.' + (isAdm ? " ‘+ 주차 추가’를 눌러 시작하세요." : "") + "</p>" : "") +
         '<div class="weeks">' + list(weeks, function (w) {
@@ -369,12 +367,6 @@ window.renderSite = function () {
               (nextSession ? '<button type="button" class="text-btn" data-jump="' + nextSession.key + '">다음 수업 보기 (' + fmtDay(nextSession.date) + ")</button>" : "") + "</div>";
             return;
           }
-          if (locked) {
-            h += '<div class="cp-class"><span class="chip task-soft">' + s.n + "주차 " + esc(s.day) + "요일 수업</span>" +
-              '<p class="cp-meta">' + icon("clock") + esc(s.w.time) + '</p><p class="cp-meta">' + icon("pin") + esc(s.w.location) + "</p>" +
-              '<p class="cp-note">' + icon("pending") + "수업 내용은 관리자 승인 후 볼 수 있습니다.</p></div>";
-            return;
-          }
           h += '<div class="cp-class"><span class="chip task-soft">' + s.n + "주차 " + esc(s.day) + "요일 수업</span>" + (r.badge ? ' <span class="chip exam">' + esc(r.badge) + "</span>" : "") + "<h4>" + esc(s.title) + "</h4>" +
             '<p class="cp-meta">' + icon("clock") + esc(s.w.time) + "</p>" +
             '<p class="cp-meta">' + icon("pin") + esc(s.w.location) + "</p>" +
@@ -384,7 +376,6 @@ window.renderSite = function () {
             '<button type="button" class="btn ghost sm" data-open="' + s.n + '">' + s.n + "주차 자세히 보기</button></div>";
         });
         ev.due.forEach(function (w) {
-          if (locked) return;
           h +='<div class="cp-due"><span class="chip due">과제 마감</span><h4>' + esc(w.raw.assignment.title) + "</h4>" +
             '<p class="cp-meta">' + icon("clock") + "마감 " + pad(w.due.getHours()) + ":" + pad(w.due.getMinutes()) + "</p>" + remainPill(w) +
             '<button type="button" class="btn ghost sm" data-open="' + w.n + '">과제 보기</button></div>';

@@ -96,7 +96,7 @@ const store = process.env.DATABASE_URL
 const SEG = /^[A-Za-z0-9_-]{1,80}$/;
 const OWNED = ["roster", "poll", "attendance", "submissions", "applications"]; // 수강생 본인만 쓰는 모음
 const PUBLIC_COLS = ["poll", "notices"];                                       // 누구나 목록을 읽을 수 있는 모음
-const PUBLIC_DOCS = ["site/config"];                                           // 누구나 읽을 수 있는 문서(주차별 학습 내용은 승인된 사람에게만)
+const PUBLIC_DOCS = ["site/config"];                                           // 누구나 읽을 수 있는 문서(주차별 자료 · 영상은 승인된 사람에게만)
 
 const segs = (p) => String(p || "").split("/");
 const validPath = (p, docPath) => { const s = segs(p); return s.length <= 6 && s.every((x) => SEG.test(x)) && (s.length % 2 === 0) === docPath; };
@@ -155,11 +155,16 @@ async function sharedConfig() {
   if (d && d.json) { try { return JSON.parse(d.json); } catch (e) {} }
   return null;
 }
-/* 승인 전 수강생에게는 주차별 학습 내용을 빼고 보냄 (주차 수·날짜는 출석 달력 계산을 위해 남김) */
+/* 주차별 강의 계획은 누구나 보지만, 구글 드라이브 자료 · 참고 영상은 승인된 수강생과 관리자에게만 보냄 */
 function redact(cfg) {
   if (!cfg || !cfg.curriculum || !Array.isArray(cfg.curriculum.weeks)) return cfg;
   const c = JSON.parse(JSON.stringify(cfg));
-  c.curriculum.weeks = c.curriculum.weeks.map((w) => (w && w.date ? { locked: true, date: w.date } : { locked: true }));
+  c.curriculum.weeks = c.curriculum.weeks.map((w) => {
+    const x = Object.assign({}, w || {});
+    delete x.materials; delete x.videos;
+    x.restricted = true;
+    return x;
+  });
   return c;
 }
 async function currentAdmin() {
@@ -186,7 +191,7 @@ app.get("/api/me", wrap(async (req, res) => {
   res.json({ uid: clientUid(req), admin: await isAdmin(req), approved: a.approved, studentId: a.studentId });
 }));
 
-/* 지금 적용할 사이트 설정: 공유 수정본이 있으면 그것, 없으면 config.js. 승인 전이면 주차별 학습 내용은 빠짐 */
+/* 지금 적용할 사이트 설정: 공유 수정본이 있으면 그것, 없으면 config.js. 승인 전이면 주차별 자료 · 영상은 빠짐 */
 app.get("/api/config", wrap(async (req, res) => {
   let cfg = await sharedConfig(), source = "shared";
   if (!cfg) { cfg = fileConfig(); source = "file"; }
@@ -255,7 +260,7 @@ app.post("/api/admin/logout", wrap(async (req, res) => {
 
 app.use("/api", (req, res) => res.status(404).json({ code: "not_found" }));
 
-/* config.js는 주차별 학습 내용을 뺀 사본으로 공개 (전체 내용은 승인된 수강생·관리자에게 /api/config로 전달) */
+/* config.js는 주차별 자료 · 영상을 뺀 사본으로 공개 (전체 내용은 승인된 수강생·관리자에게 /api/config로 전달) */
 app.get("/assets/config.js", (req, res) => {
   const cfg = fileConfig();
   if (!cfg) return res.status(500).type("application/javascript").send("/* config.js를 읽지 못했습니다. */");
