@@ -223,7 +223,8 @@ window.renderSite = function () {
 
     /* 주차별 자료: 구글 드라이브 링크 + 참고 영상(YouTube는 페이지 안에서 재생) */
     function weekRefs(r) {
-      if (locked) return '<h4>수업 자료 · 참고 영상</h4><p class="ref-lock">' + LOCK_SVG + "<span>" + lockMsg() + "</span></p>";
+      var has = r.restricted ? !!r.hasRefs : ((r.materials || []).length + (r.videos || []).length) > 0;
+      if (locked) return !has ? "" : '<h4>수업 자료 · 참고 영상</h4><p class="ref-lock">' + LOCK_SVG + "<span>" + lockMsg() + "</span></p>";
       var mats = (r.materials || []).filter(function (m) { return m && m.url; });
       var vids = (r.videos || []).filter(function (v) { return v && v.url; });
       return (mats.length ? '<h4>수업 자료 <small class="muted">Google Drive</small></h4><ul class="mats">' + list(mats, function (m) {
@@ -253,20 +254,19 @@ window.renderSite = function () {
     }
 
     function weekBody(w) {
-      var r = w.raw, a = r.assignment;
+      var r = w.raw, a = r.assignment, refs = weekRefs(r); /* 자료 · 영상이 없는 주차는 '참고 자료' 칸을 아예 그리지 않음 */
       var out = '<div class="week-body">' + weekAdmin(w) +
         '<div class="sessions">' + list(w.sessions, function (s) {
           return '<div class="sess' + (s.holiday ? " off" : "") + '"><span class="sess-day">' + esc(s.day) + '</span><div><span class="sess-date">' + esc(fmtDay(s.date)) + (s.holiday ? ' · 휴강(' + esc(s.holiday) + ")" : "") + '</span><b>' + esc(s.title) + "</b></div></div>";
         }) + "</div>" +
-        '<div class="week-cols">' +
+        '<div class="week-cols' + (refs ? "" : " single") + '">' +
           "<div>" +
             ((r.concepts && r.concepts.length) ? '<h4>수업 핵심 질문 (핵심 개념)</h4>' + chips(r.concepts) : "") +
             ((r.content && r.content.length) ? '<h4>활동</h4><ul class="learn">' + list(r.content, function (c) { return "<li>" + esc(c) + "</li>"; }) + "</ul>" : "") +
             (r.homework ? '<h4>과제</h4><p class="hw">' + icon("doc") + esc(r.homework) + "</p>" : "") +
             (!(r.concepts && r.concepts.length) && !(r.content && r.content.length) && !r.homework ? '<p class="none">수업 시간에 자세히 안내합니다.</p>' : "") +
           "</div>" +
-          "<div>" + (weekRefs(r) || "<h4>참고 자료</h4>") +
-            (cfg.materialsNote ? '<p class="none">' + esc(cfg.materialsNote) + "</p>" : "") + "</div>" +
+          (refs ? "<div>" + refs + "</div>" : "") +
         "</div>";
       if (a) {
         out += '<div class="assign">' +

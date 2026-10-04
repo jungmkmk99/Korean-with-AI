@@ -161,6 +161,7 @@ function redact(cfg) {
   const c = JSON.parse(JSON.stringify(cfg));
   c.curriculum.weeks = c.curriculum.weeks.map((w) => {
     const x = Object.assign({}, w || {});
+    x.hasRefs = ((x.materials || []).length + (x.videos || []).length) > 0; // 자료가 있는 주차에만 잠금 안내를 보이기 위함
     delete x.materials; delete x.videos;
     x.restricted = true;
     return x;

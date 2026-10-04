@@ -598,7 +598,7 @@
     if (v.materials.length) w.materials = v.materials; else delete w.materials;
     if (v.homework) w.homework = v.homework; else delete w.homework;
     if (v.hasAssign) w.assignment = Object.assign({}, (old && old.assignment) || {}, { title: v.aTitle, desc: v.aDesc, due: v.aDue }); else delete w.assignment;
-    delete w.locked; delete w.restricted;
+    delete w.locked; delete w.restricted; delete w.hasRefs;
     return w;
   }
   function saveWeeks(mutate, msg) {
@@ -772,7 +772,6 @@
     cmSettings(box, { key: "cur", label: "구역 제목 · 안내", fields: [
         { key: "title", label: "제목", type: "text", required: true },
         { key: "lead", label: "안내 문구", type: "textarea" },
-        { key: "materialsNote", label: "자료 안내 문구", type: "text", placeholder: "주차별 수업 자료는 LMS에 올라옵니다." },
         { key: "submitUrl", label: "과제 제출 주소", type: "text", help: "비우면 사이트에서 제출받음", placeholder: "https://…" }
       ], get: function (c) { return c.curriculum; }, set: function (c, v) { Object.assign(ensure(c, "curriculum", {}), v); } });
     cmList(box, { key: "weeks", label: "주차", itemLabel: "주차",

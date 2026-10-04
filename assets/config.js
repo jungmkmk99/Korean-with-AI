@@ -195,7 +195,6 @@ window.SITE_CONFIG = {
     holidays: [
       { date: "2026-09-24", name: "추석 연휴" }         // [확인 필요]
     ],
-    materialsNote: "주차별 수업 자료는 LMS에 올라옵니다.",
     submitUrl: "",
     weeks: [
       { topic: "강의 소개, AI 리터러시",

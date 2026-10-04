@@ -1113,3 +1113,5 @@ input:focus, select:focus, textarea:focus { border-color: var(--blossom); box-sh
 .ref-lock a { color: var(--lilac); font-weight: 600; }
 .ref-lock.small { padding: 6px 10px; font-size: .84rem; align-items: center; }
 .ref-lock.small svg { margin-top: 0; }
+/* 참고 자료가 없는 주차: 한 칸으로 */
+.week-cols.single { grid-template-columns: minmax(0, 1fr); }
