@@ -28,7 +28,8 @@ window.renderSite = function () {
   }
   /* 내용 정리(예전에 저장된 설정에도 적용). 1: Papago 카드 · 유료 가입 문구 삭제, 2: 출석 체크 문구, 3: 교수자 사진 교체,
      4: 유의사항 + 수강 준비물을 카드형 '과목 특성 및 수강신청 시 유의사항'으로 합치고 '수강 안내' 구역을 '수강 신청'으로 */
-  var CONTENT_REV = 5;
+  var CONTENT_REV = 6;
+  if ((C.contentRev || 0) < 6 && C.syllabus) { delete C.syllabus.etc; delete C.syllabus.etcTitle; } // 6: 강의계획서 '기타 사항' 삭제
   if ((C.contentRev || 0) < 5 && C.participate && /로그인하면/.test(C.participate.lead || "")) C.participate.lead = "실시간 투표에 참여해 보세요. 투표는 로그인 없이 누구나 할 수 있습니다."; // 5: 로그인은 상단 메뉴 팝업으로
   if ((C.contentRev || 0) < 4) {
     var FN = ((window.SITE_CONFIG_FILE || {}).syllabus || {}).notes;
@@ -516,7 +517,6 @@ window.renderSite = function () {
         acc("tasks", S.tasksTitle, (S.tasks || []).length ? "과제 " + S.tasks.length + "개" : "",
           list(S.tasks, function (t) { return "<h4>" + esc(t.title) + "</h4>" + ul(t.items); })) +
       "</div>" +
-      ((S.etc || []).length ? '<article class="card syl-card syl-etc"><h3>' + esc(S.etcTitle) + "</h3>" + ul(S.etc) + "</article>" : "") +
     "</div></section>";
   }
 
