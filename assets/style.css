@@ -1076,3 +1076,5 @@ input:focus, select:focus, textarea:focus { border-color: var(--blossom); box-sh
 .st-tbl .btn.sm { padding: 6px 14px; }
 .wk-att td:nth-child(4), .wk-att td:nth-child(5) { text-align: center; white-space: nowrap; }
 .adm-tbl .cell-clip.small { font-size: .8rem; color: var(--muted); }
+/* 사이트 버전 표시 */
+.footer-bottom .site-ver { margin: 0; font-size: .78rem; color: var(--muted); font-variant-numeric: tabular-nums; padding: 2px 8px; border: 1px solid var(--line); border-radius: 3px; }

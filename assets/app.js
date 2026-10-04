@@ -571,6 +571,7 @@ window.renderSite = function () {
 
   /* ---------- 푸터: 교수자 ---------- */
   var p = C.instructor;
+  var siteVer = (document.querySelector('meta[name="version"]') || {}).content || "";
   var mail = (p.contacts || []).filter(function (c) { return c.type === "email"; })[0];
   var photo = p.photo
     ? '<img src="' + esc(p.photo) + '" alt="' + esc(p.name) + ' 교수 사진">'
@@ -590,6 +591,7 @@ window.renderSite = function () {
       '<div class="footer-bottom">' +
         '<a class="foot-brand" href="#top"><img src="assets/logo.png" alt="" width="235" height="176"><b>' + esc(C.site.title) + "</b></a>" +
         '<p class="copyright">' + esc(C.site.footerNote) + "</p>" +
+        (siteVer ? '<p class="site-ver" title="사이트 버전">v' + esc(siteVer) + "</p>" : "") +
         (mail ? '<p class="foot-mail">Say <a href="mailto:' + esc(mail.value) + '">' + esc(mail.value) + "</a></p>" : "") +
       "</div>" +
     "</div>";
