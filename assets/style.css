@@ -1123,4 +1123,15 @@ input:focus, select:focus, textarea:focus { border-color: var(--blossom); box-sh
 .syl-notes-cards { margin-bottom: 26px; }
 .syl-notes-cards .sub-title { margin-top: 6px; }
 /* 상단 메뉴 '수강생 로그인'으로 이동할 때 머리글에 가리지 않게 */
-#loginCard { scroll-margin-top: calc(var(--header-h) + 16px); }
+
+/* 참여 공간: 투표만 (로그인은 상단 메뉴 팝업) */
+.part-solo { max-width: 760px; margin: 0 auto; }
+.part-solo .poll-card { position: static; }
+/* 수강생 로그인 팝업 */
+.modal.student-login { width: min(100%, 420px); }
+.student-login .badge { margin-bottom: 10px; }
+.student-login h3 { font-family: var(--font-display); font-size: 1.35rem; margin: 0 0 6px; }
+.student-login .login-form .btn { width: 100%; justify-content: center; }
+.sl-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 14px; }
+.modal.student-login .sl-foot .btn.primary { width: auto; }
+#navList a.logged-in { color: var(--lilac); font-weight: 700; }

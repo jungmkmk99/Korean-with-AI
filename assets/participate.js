@@ -199,11 +199,7 @@
   if (!mount || !applyMount || !subMount) return false;
   mount.innerHTML =
     '<div id="modeNote"></div>' +
-    '<div class="part-grid"><div class="part-col">' +
-      '<div class="card part-card login-card" id="loginCard"><p class="loading">불러오는 중…</p></div>' +
-    '</div><div class="part-col">' +
-      '<div class="card part-card poll-card" id="pollCard"><p class="loading">불러오는 중…</p></div>' +
-    "</div></div>";
+    '<div class="part-solo"><div class="card part-card poll-card" id="pollCard"><p class="loading">불러오는 중…</p></div></div>';
   applyMount.innerHTML = '<div class="card apply-card"><p class="loading">신청서를 불러오는 중…</p></div>';
   /* 과제 제출은 FAQ 아래 '과제 제출' 구역에 따로 둠 */
   subMount.innerHTML = '<div class="card part-card submit-card" id="submitCard"><p class="loading">불러오는 중…</p></div>';
@@ -236,19 +232,56 @@
   }
   window.SITE_ACCESS_REFRESH = function () { return refreshAccess(false); };
 
-  /* ================= 로그인 ================= */
+  /* ================= 로그인 (상단 메뉴 '수강생 로그인' → 팝업 창) ================= */
+  var NAV_LOGIN = "login";
+  function navLogin() {
+    var a = document.querySelector('#navList a[data-id="' + NAV_LOGIN + '"]'); if (!a) return;
+    var item = ((window.SITE_CONFIG || C).nav || []).filter(function (n) { return n.id === NAV_LOGIN; })[0];
+    a.textContent = me ? me.name + " 님" : ((item && item.label) || "수강생 로그인");
+    a.classList.toggle("logged-in", !!me);
+    a.setAttribute("aria-haspopup", "dialog");
+  }
+  function openLogin() {
+    if ($("#loginModal")) return;
+    var back = document.createElement("div");
+    back.className = "modal-back"; back.id = "loginModal";
+    back.innerHTML = '<div class="modal card student-login" role="dialog" aria-modal="true" aria-labelledby="slTitle">' +
+      '<button type="button" class="modal-x" aria-label="닫기"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>' +
+      '<div id="loginCard"></div></div>';
+    document.body.appendChild(back);
+    var lastFocus = document.activeElement;
+    requestAnimationFrame(function () { back.classList.add("in"); });
+    function close() {
+      back.classList.remove("in"); setTimeout(function () { back.remove(); }, 250);
+      document.removeEventListener("keydown", onKey);
+      if (lastFocus && lastFocus.focus && document.contains(lastFocus)) lastFocus.focus({ preventScroll: true });
+    }
+    function onKey(e) { if (e.key === "Escape") close(); }
+    document.addEventListener("keydown", onKey);
+    $(".modal-x", back).addEventListener("click", close);
+    back.addEventListener("click", function (e) { if (e.target === back || e.target.closest("[data-sl-close]")) close(); });
+    drawLogin();
+    var f = $("#lgName", back) || $("button", $("#loginCard", back)); if (f) f.focus();
+  }
+  /* 상단 메뉴 · '로그인' 링크를 누르면 팝업을 엶 */
+  document.addEventListener("click", function (e) {
+    var a = e.target.closest('#navList a[data-id="' + NAV_LOGIN + '"], [data-open-login]'); if (!a) return;
+    e.preventDefault(); openLogin();
+  });
   function drawLogin() {
-    var el = $("#loginCard");
+    navLogin();
+    var el = $("#loginCard"); if (!el) return;
+    if (!Store.uid()) { el.innerHTML = '<h3 id="slTitle">수강생 로그인</h3><p class="muted">' + (ready ? "참여 기능을 사용할 수 없습니다." : "불러오는 중…") + "</p>"; return; }
     if (me) {
-      el.innerHTML = '<div class="login-done"><span class="avatar">' + esc(me.name.charAt(0)) + '</span><div><span class="kicker">로그인됨</span><h3>' + esc(me.name) + ' 님</h3><p class="muted">학번 ' + esc(me.studentId) + '</p></div></div>' +
+      el.innerHTML = '<div class="login-done"><span class="avatar">' + esc(me.name.charAt(0)) + '</span><div><span class="kicker">로그인됨</span><h3 id="slTitle">' + esc(me.name) + ' 님</h3><p class="muted">학번 ' + esc(me.studentId) + '</p></div></div>' +
         (ACC.known && !ACC.admin ? (ACC.approved
           ? '<p class="appr ok"><span class="chip now">승인됨</span> 수업 자료 · 참고 영상을 보고 과제를 제출할 수 있습니다.</p>'
           : '<p class="appr"><span class="chip past">승인 대기</span> 교수자가 승인하면 수업 자료 · 참고 영상과 과제 제출이 열립니다.</p>') : "") +
-        '<button type="button" class="text-btn" id="relogin">다른 학번으로 로그인</button>';
+        '<div class="sl-foot"><button type="button" class="btn primary sm" data-sl-close>확인</button><button type="button" class="text-btn" id="relogin">다른 학번으로 로그인</button></div>';
       $("#relogin").addEventListener("click", function () { me = null; drawLogin(); drawAttend(); drawSubmit(); refreshAccess(false); });
       return;
     }
-    el.innerHTML = '<span class="kicker">Login</span><h3>수강생 로그인</h3><p class="muted">이름과 학번으로 로그인하면 아래 ‘과제 제출’에서 과제를 낼 수 있습니다.</p>' +
+    el.innerHTML = '<span class="badge"><span class="badge-dot"></span>Login</span><h3 id="slTitle">수강생 로그인</h3><p class="muted">이름과 학번으로 로그인하면 ‘과제 제출’에서 과제를 낼 수 있습니다. 수강 신청서를 낸 이름 · 학번과 같게 적어 주세요.</p>' +
       '<form id="loginForm" class="login-form" novalidate>' +
         '<label for="lgName">이름</label><input id="lgName" type="text" autocomplete="name" placeholder="홍길동">' +
         '<label for="lgId">학번</label><input id="lgId" type="text" inputmode="numeric" placeholder="숫자 10자리">' +
@@ -261,9 +294,10 @@
       if (!n) miss.push("이름"); if (!id) miss.push("학번");
       if (miss.length) { $("#lgErr").textContent = miss.join(", ") + "을(를) 입력해 주세요."; (n ? $("#lgId") : $("#lgName")).focus(); return; }
       if (!/^\d{10}$/.test(id)) { $("#lgErr").textContent = "학번은 숫자 10자리로 적어 주세요."; $("#lgId").focus(); return; }
+      var sb = $("#loginForm button[type=submit]"); if (sb) { sb.disabled = true; sb.textContent = "로그인하는 중…"; }
       var data = { name: n, studentId: id, at: new Date().toISOString() };
       Store.set("roster/" + Store.uid(), data).then(function () { me = data; drawLogin(); drawAttend(); drawSubmit(); prefillApply(); refreshAccess(false); },
-        function (er) { $("#lgErr").textContent = failMsg(er); });
+        function (er) { $("#lgErr").textContent = failMsg(er); if (sb) { sb.disabled = false; sb.textContent = "로그인"; } });
     });
   }
 
@@ -371,7 +405,7 @@
     }
     var closed = r.cls === "closed" && S.allowLate === false;
     if (!me) {
-      h += '<p class="muted"><a href="#participate">참여 공간에서 로그인</a>하면 과제 파일을 제출할 수 있습니다.</p>';
+      h += '<p class="muted"><a href="#login" data-open-login>상단의 ‘수강생 로그인’</a>으로 로그인하면 과제 파일을 제출할 수 있습니다.</p>';
     } else if (closed) {
       h += '<p class="muted">마감된 과제입니다.</p>';
     } else {
@@ -570,7 +604,7 @@
     $("#modeNote").innerHTML = modeNote();
     var uid = Store.uid();
     if (!uid) {
-      ["#loginCard", "#submitCard"].forEach(function (s) { $(s).innerHTML = '<p class="muted">참여 기능을 사용할 수 없습니다.</p>'; });
+      $("#submitCard").innerHTML = '<p class="muted">참여 기능을 사용할 수 없습니다.</p>'; drawLogin();
       drawApply(); votes = []; drawPoll(); return;
     }
     Promise.all([

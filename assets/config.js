@@ -25,8 +25,8 @@ window.SITE_CONFIG = {
   },
 
   /* ---------- 3. 상단 메뉴 (id는 바꾸지 마세요) ---------- */
-  navRev: 5,       // 메뉴 구성 버전(바꾸지 마세요)
-  contentRev: 4,   // 내용 정리 버전(바꾸지 마세요)
+  navRev: 6,       // 메뉴 구성 버전(바꾸지 마세요)
+  contentRev: 5,   // 내용 정리 버전(바꾸지 마세요)
   nav: [
     { id: "intro",      label: "강의 소개" },
     { id: "curriculum", label: "커리큘럼" },
@@ -34,7 +34,7 @@ window.SITE_CONFIG = {
     { id: "faq",        label: "FAQ" },
     { id: "submit",     label: "과제 제출" },
     { id: "instructor", label: "교수자" },
-    { id: "loginCard",  label: "수강생 로그인" }
+    { id: "login",      label: "수강생 로그인" }   // 누르면 로그인 팝업 창이 열림
   ],
 
   /* ---------- 4. 첫 화면 ---------- */
@@ -332,7 +332,7 @@ window.SITE_CONFIG = {
   participate: {
     kicker: "Join in",
     title: "참여 *공간*",
-    lead: "로그인하면 과제 제출을 할 수 있습니다. 투표는 누구나 참여할 수 있습니다.",
+    lead: "실시간 투표에 참여해 보세요. 투표는 로그인 없이 누구나 할 수 있습니다.",
     poll: {
       question: "가장 기대되는 수업 활동은 무엇인가요?",
       options: [

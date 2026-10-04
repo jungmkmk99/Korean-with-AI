@@ -17,18 +17,19 @@ window.renderSite = function () {
   if (!C) { document.body.insertAdjacentHTML("afterbegin", "<p style='padding:20px'>config.js를 불러오지 못했습니다. assets 폴더에 config.js가 있는지 확인하세요.</p>"); return; }
 
   /* 상단 메뉴 구성이 바뀐 경우(관리자 화면에서 저장해 둔 예전 설정 포함) 새 메뉴로 맞춤 */
-  var NAV_REV = 5;
+  var NAV_REV = 6;
   if ((C.navRev || 0) < NAV_REV) {
     C.nav = [
       { id: "intro", label: "강의 소개" }, { id: "curriculum", label: "커리큘럼" },
       { id: "portfolio", label: "포트폴리오" }, { id: "faq", label: "FAQ" }, { id: "submit", label: "과제 제출" }, { id: "instructor", label: "교수자" },
-      { id: "loginCard", label: "수강생 로그인" }
+      { id: "login", label: "수강생 로그인" }
     ];
     C.navRev = NAV_REV;
   }
   /* 내용 정리(예전에 저장된 설정에도 적용). 1: Papago 카드 · 유료 가입 문구 삭제, 2: 출석 체크 문구, 3: 교수자 사진 교체,
      4: 유의사항 + 수강 준비물을 카드형 '과목 특성 및 수강신청 시 유의사항'으로 합치고 '수강 안내' 구역을 '수강 신청'으로 */
-  var CONTENT_REV = 4;
+  var CONTENT_REV = 5;
+  if ((C.contentRev || 0) < 5 && C.participate && /로그인하면/.test(C.participate.lead || "")) C.participate.lead = "실시간 투표에 참여해 보세요. 투표는 로그인 없이 누구나 할 수 있습니다."; // 5: 로그인은 상단 메뉴 팝업으로
   if ((C.contentRev || 0) < 4) {
     var FN = ((window.SITE_CONFIG_FILE || {}).syllabus || {}).notes;
     if (C.syllabus && (C.syllabus.notes || []).some(function (n) { return typeof n === "string"; }) && FN && FN.length && typeof FN[0] === "object") C.syllabus.notes = JSON.parse(JSON.stringify(FN));
@@ -253,7 +254,7 @@ window.renderSite = function () {
     function lockMsg() {
       if (!AC.known) return "승인 여부를 확인하는 중입니다…";
       if (AC.pending) return "관리자 승인 대기 중입니다. 승인되면 구글 드라이브 자료와 참고 영상이 열립니다.";
-      return '구글 드라이브 자료와 참고 영상은 관리자 승인을 받은 수강생만 볼 수 있습니다. <a href="#apply">수강 신청</a> 또는 <a href="#participate">로그인</a>해 주세요.';
+      return '구글 드라이브 자료와 참고 영상은 관리자 승인을 받은 수강생만 볼 수 있습니다. <a href="#apply">수강 신청</a> 또는 <a href="#login" data-open-login>로그인</a>해 주세요.';
     }
     function weekAdmin(w) {
       if (!isAdm) return "";
