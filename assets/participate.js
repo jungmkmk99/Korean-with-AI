@@ -185,18 +185,18 @@
 
   /* ================= 화면 뼈대 ================= */
   function skeleton() {
-  var mount = $("#partMount"), applyMount = $("#apply");
-  if (!mount || !applyMount) return false;
+  var mount = $("#partMount"), applyMount = $("#apply"), subMount = $("#submitMount");
+  if (!mount || !applyMount || !subMount) return false;
   mount.innerHTML =
     '<div id="modeNote"></div>' +
     '<div class="part-grid"><div class="part-col">' +
       '<div class="card part-card login-card" id="loginCard"><p class="loading">불러오는 중…</p></div>' +
-      '<div class="card part-card" id="attendCard"><p class="loading">불러오는 중…</p></div>' +
-      '<div class="card part-card" id="submitCard"><p class="loading">불러오는 중…</p></div>' +
     '</div><div class="part-col">' +
       '<div class="card part-card poll-card" id="pollCard"><p class="loading">불러오는 중…</p></div>' +
     "</div></div>";
   applyMount.innerHTML = '<div class="card apply-card"><p class="loading">신청서를 불러오는 중…</p></div>';
+  /* 과제 제출은 FAQ 아래 '과제 제출' 구역에 따로 둠 */
+  subMount.innerHTML = '<div class="card part-card submit-card" id="submitCard"><p class="loading">불러오는 중…</p></div>';
   return true;
   }
   if (!skeleton()) return;
@@ -238,7 +238,7 @@
       $("#relogin").addEventListener("click", function () { me = null; drawLogin(); drawAttend(); drawSubmit(); refreshAccess(false); });
       return;
     }
-    el.innerHTML = '<span class="kicker">Login</span><h3>수강생 로그인</h3><p class="muted">이름과 학번을 입력하면 출석 체크와 과제 제출을 할 수 있습니다.</p>' +
+    el.innerHTML = '<span class="kicker">Login</span><h3>수강생 로그인</h3><p class="muted">이름과 학번으로 로그인하면 아래 ‘과제 제출’에서 과제를 낼 수 있습니다.</p>' +
       '<form id="loginForm" class="login-form" novalidate>' +
         '<label for="lgName">이름</label><input id="lgName" type="text" autocomplete="name" placeholder="홍길동">' +
         '<label for="lgId">학번</label><input id="lgId" type="text" inputmode="numeric" placeholder="숫자 10자리">' +
@@ -295,6 +295,7 @@
   function nextSession() { var t = new Date(); t.setHours(0, 0, 0, 0); return sessionsList().filter(function (s) { return s.date >= t; })[0] || null; }
   function drawAttend() {
     var el = $("#attendCard"), ts = todaySession(), only = !(P.attendance && P.attendance.onlyClassDay === false);
+    if (!el) return; // 출석 체크 카드는 사이트에서 뺌
     var target = ts || (only ? null : nextSession());
     var fail = (P.attendance && P.attendance.failAbsences) || 0;
     var h = '<span class="kicker">Attendance</span><h3>출석 체크</h3>';
@@ -345,12 +346,12 @@
   function fmtSize(b) { return b > 1048576 ? (b / 1048576).toFixed(1) + "MB" : Math.max(1, Math.round(b / 1024)) + "KB"; }
   function drawSubmit() {
     var el = $("#submitCard"), S = P.submission || {};
-    if (R.locked) { el.innerHTML = '<span class="kicker">Assignment</span><h3>과제 제출</h3><p class="muted">과제 안내는 ‘주차별 강의 계획’에서 볼 수 있고, 제출은 관리자 승인을 받은 뒤에 할 수 있습니다.</p>'; return; }
-    if (!assignWeeks.length) { el.innerHTML = '<h3>과제 제출</h3><p class="muted">등록된 과제가 없습니다.</p>'; return; }
+    if (R.locked) { el.innerHTML = '<p class="muted">과제 안내는 ‘주차별 강의 계획’에서 볼 수 있고, 제출은 관리자 승인을 받은 뒤에 할 수 있습니다.</p>'; return; }
+    if (!assignWeeks.length) { el.innerHTML = '<p class="muted">등록된 과제가 없습니다.</p>'; return; }
     if (selWeek == null) selWeek = defaultWeek();
     var w = assignWeeks.filter(function (x) { return x.n === selWeek; })[0] || assignWeeks[0];
     var r = R.remain(w.due), mine = subs[w.n];
-    var h = '<span class="kicker">Assignment</span><h3>과제 제출</h3>' +
+    var h = '' +
       '<label class="lbl" for="subSel">과제 선택</label><select id="subSel">' + assignWeeks.map(function (x) {
         return '<option value="' + x.n + '"' + (x.n === w.n ? " selected" : "") + ">" + x.n + "주차 · " + esc(x.raw.assignment.title) + (subs[x.n] ? " ✓" : "") + "</option>";
       }).join("") + "</select>" +
@@ -360,7 +361,7 @@
     }
     var closed = r.cls === "closed" && S.allowLate === false;
     if (!me) {
-      h += '<p class="muted">로그인하면 과제 파일을 제출할 수 있습니다.</p>';
+      h += '<p class="muted"><a href="#participate">참여 공간에서 로그인</a>하면 과제 파일을 제출할 수 있습니다.</p>';
     } else if (closed) {
       h += '<p class="muted">마감된 과제입니다.</p>';
     } else {
@@ -423,7 +424,7 @@
   }
   document.addEventListener("site:submit", function (e) {
     selWeek = e.detail.week; drawSubmit();
-    $("#submitCard").scrollIntoView({ block: "center" });
+    $("#submit").scrollIntoView({ block: "start" });
     var s = $("#subSel"); if (s) s.focus();
   });
 
@@ -559,7 +560,7 @@
     $("#modeNote").innerHTML = modeNote();
     var uid = Store.uid();
     if (!uid) {
-      ["#loginCard", "#attendCard", "#submitCard"].forEach(function (s) { $(s).innerHTML = '<p class="muted">참여 기능을 사용할 수 없습니다.</p>'; });
+      ["#loginCard", "#submitCard"].forEach(function (s) { $(s).innerHTML = '<p class="muted">참여 기능을 사용할 수 없습니다.</p>'; });
       drawApply(); votes = []; drawPoll(); return;
     }
     Promise.all([

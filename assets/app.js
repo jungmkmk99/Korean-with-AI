@@ -17,17 +17,21 @@ window.renderSite = function () {
   if (!C) { document.body.insertAdjacentHTML("afterbegin", "<p style='padding:20px'>config.js를 불러오지 못했습니다. assets 폴더에 config.js가 있는지 확인하세요.</p>"); return; }
 
   /* 상단 메뉴 구성이 바뀐 경우(관리자 화면에서 저장해 둔 예전 설정 포함) 새 메뉴로 맞춤 */
-  var NAV_REV = 2;
+  var NAV_REV = 3;
   if ((C.navRev || 0) < NAV_REV) {
     C.nav = [
       { id: "intro", label: "강의 소개" }, { id: "curriculum", label: "커리큘럼" }, { id: "guide", label: "수강 안내" },
-      { id: "portfolio", label: "포트폴리오" }, { id: "faq", label: "FAQ" }, { id: "submitCard", label: "과제 제출" }, { id: "instructor", label: "교수자" }
+      { id: "portfolio", label: "포트폴리오" }, { id: "faq", label: "FAQ" }, { id: "submit", label: "과제 제출" }, { id: "instructor", label: "교수자" }
     ];
     C.navRev = NAV_REV;
   }
   /* 내용 정리(예전에 저장된 설정에도 적용): Papago 도구 카드 삭제, '일부 기능은 유료 가입…' 문구 삭제 */
-  var CONTENT_REV = 1;
-  if ((C.contentRev || 0) < CONTENT_REV) {
+  var CONTENT_REV = 2;
+  if ((C.contentRev || 0) < 2 && C.participate && typeof C.participate.lead === "string") {
+    /* 출석 체크 기능을 사이트에서 뺌 → 참여 공간 안내 문구도 맞춤 */
+    C.participate.lead = C.participate.lead.replace("수업마다 출석 체크와 과제 제출을", "과제 제출을");
+  }
+  if ((C.contentRev || 0) < 1) {
     var noPaid = function (s) { return typeof s === "string" ? s.replace(/\s*일부 기능은 유료 가입이 필요할 수 있습니다\.?/g, "") : s; };
     if (C.tools) {
       C.tools.lead = noPaid(C.tools.lead);
@@ -570,6 +574,10 @@ window.renderSite = function () {
     '<div class="faq">' + list(f.items, function (it, i) {
       return '<details class="card qa"' + (i === 0 ? " open" : "") + '><summary><span class="q">Q</span><span class="q-text">' + esc(it.q) + '</span><span class="plus">' + icon("plus") + '</span></summary><div class="a"><p>' + esc(it.a) + "</p></div></details>";
     }) + "</div></div></section>";
+
+  // 과제 제출 (participate.js가 채움, FAQ 아래)
+  var sb = C.submit || { kicker: "Assignment", title: "과제 *제출*", lead: "주차별 과제 파일을 여기서 제출합니다. 먼저 ‘참여 공간’에서 이름과 학번으로 로그인해 주세요." };
+  html += '<section id="submit" class="sec-submit"><div class="wrap narrow">' + head(sb) + '<div id="submitMount"></div></div></section>';
 
   $("#main").innerHTML = html;
   CUR.init();

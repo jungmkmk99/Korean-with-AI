@@ -1115,3 +1115,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--blossom); box-sh
 .ref-lock.small svg { margin-top: 0; }
 /* 참고 자료가 없는 주차: 한 칸으로 */
 .week-cols.single { grid-template-columns: minmax(0, 1fr); }
+/* 과제 제출 구역 (FAQ 아래) */
+.sec-submit .submit-card { padding: 26px 28px; }
+.sec-submit .submit-card .muted a { color: var(--lilac); font-weight: 600; }
+@media (max-width: 520px) { .sec-submit .submit-card { padding: 20px 18px; } }

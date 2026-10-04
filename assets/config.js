@@ -25,15 +25,15 @@ window.SITE_CONFIG = {
   },
 
   /* ---------- 3. 상단 메뉴 (id는 바꾸지 마세요) ---------- */
-  navRev: 2,       // 메뉴 구성 버전(바꾸지 마세요)
-  contentRev: 1,   // 내용 정리 버전(바꾸지 마세요)
+  navRev: 3,       // 메뉴 구성 버전(바꾸지 마세요)
+  contentRev: 2,   // 내용 정리 버전(바꾸지 마세요)
   nav: [
     { id: "intro",      label: "강의 소개" },
     { id: "curriculum", label: "커리큘럼" },
     { id: "guide",      label: "수강 안내" },
     { id: "portfolio",  label: "포트폴리오" },
     { id: "faq",        label: "FAQ" },
-    { id: "submitCard", label: "과제 제출" },
+    { id: "submit",     label: "과제 제출" },
     { id: "instructor", label: "교수자" }
   ],
 
@@ -336,7 +336,7 @@ window.SITE_CONFIG = {
   participate: {
     kicker: "Join in",
     title: "참여 *공간*",
-    lead: "로그인하면 수업마다 출석 체크와 과제 제출을 할 수 있습니다. 투표는 누구나 참여할 수 있습니다.",
+    lead: "로그인하면 과제 제출을 할 수 있습니다. 투표는 누구나 참여할 수 있습니다.",
     poll: {
       question: "가장 기대되는 수업 활동은 무엇인가요?",
       options: [
