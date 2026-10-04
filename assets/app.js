@@ -464,24 +464,35 @@ window.renderSite = function () {
     if (!S) return "";
     var maxPct = Math.max.apply(null, (S.grading || []).map(function (g) { return +g.pct || 0; }).concat([1]));
     var ul = function (arr) { return '<ul class="learn">' + list(arr, function (t) { return "<li>" + esc(t) + "</li>"; }) + "</ul>"; };
+    var acc = function (id, title, sub, body, open) {
+      if (!title) return "";
+      return '<details class="card syl-acc" id="syl-' + id + '"' + (open ? " open" : "") + "><summary>" +
+        '<span class="sa-title">' + esc(title) + "</span>" + (sub ? '<span class="sa-sub">' + sub + "</span>" : "") +
+        '<span class="wk-chev">' + icon("chev") + "</span></summary>" +
+        '<div class="sa-body">' + body + "</div></details>";
+    };
     return '<section class="sec-syllabus" id="syllabus"><div class="wrap">' + head(S) +
       (S.info && S.info.length ? '<dl class="syl-info">' + list(S.info, function (i) { return "<div><dt>" + esc(i.label) + "</dt><dd>" + esc(i.value) + "</dd></div>"; }) + "</dl>" : "") +
       (S.notes && S.notes.length ? '<div class="syl-notes"><h3><span aria-hidden="true">★★★</span> ' + esc(S.notesTitle) + ' <span aria-hidden="true">★★★</span></h3><ol>' + list(S.notes, function (t) { return "<li>" + esc(t) + "</li>"; }) + "</ol></div>" : "") +
-      '<div class="syl-grid">' +
-        '<article class="card syl-card"><h3>' + esc(S.summaryTitle) + "</h3><p>" + esc(S.summary) + "</p>" +
-          "<h3>" + esc(S.goalsTitle) + '</h3><p class="goal-lead">' + esc(S.goalLead) + '</p><ol class="goals">' + list(S.goals, function (g) { return "<li>" + esc(g) + "</li>"; }) + "</ol>" +
-          '<dl class="syl-methods">' + list(S.methods, function (m) { return "<div><dt>" + esc(m.label) + "</dt><dd>" + esc(m.value) + "</dd></div>"; }) + "</dl></article>" +
-        '<article class="card syl-card"><h3>' + esc(S.gradingTitle) + '</h3><ul class="grade-bars">' + list(S.grading, function (g) {
+      /* 강의 개요 · 수업 목표 · 평가 방법 · 성적 산출 기준 · 출석 관련 규정 · 과제 안내: 눌러서 펼치는 드롭다운 */
+      '<div class="week-tools syl-tools"><button type="button" class="text-btn" data-syl="open">모두 펼치기</button><button type="button" class="text-btn" data-syl="close">모두 접기</button></div>' +
+      '<div class="syl-accs">' +
+        acc("summary", S.summaryTitle, "", "<p>" + esc(S.summary) + "</p>", true) +
+        acc("goals", S.goalsTitle, (S.goals || []).length ? "목표 " + S.goals.length + "개" : "",
+          '<p class="goal-lead">' + esc(S.goalLead) + '</p><ol class="goals">' + list(S.goals, function (g) { return "<li>" + esc(g) + "</li>"; }) + "</ol>" +
+          ((S.methods || []).length ? '<dl class="syl-methods">' + list(S.methods, function (m) { return "<div><dt>" + esc(m.label) + "</dt><dd>" + esc(m.value) + "</dd></div>"; }) + "</dl>" : "")) +
+        acc("grading", S.gradingTitle, list(S.grading, function (g, i) { return (i ? " · " : "") + esc(g.name) + " " + esc(g.pct) + "%"; }),
+          '<ul class="grade-bars">' + list(S.grading, function (g) {
             return '<li><span class="gb-l">' + esc(g.name) + (g.note ? "<small>" + esc(g.note) + "</small>" : "") + '</span><span class="po-track"><span class="po-bar" style="width:' + (g.pct / maxPct * 100) + '%"></span></span><span class="gb-v">' + esc(g.pct) + "%</span></li>";
-          }) + "</ul>" +
-          "<h3>" + esc(S.gradesTitle) + '</h3><div class="tbl-wrap"><table class="grade-tbl"><thead><tr><th scope="col">점수 구간</th><th scope="col">등급</th></tr></thead><tbody>' +
-            list(S.grades, function (g) { return "<tr><td>" + esc(g.range) + "</td><th scope=\"row\">" + esc(g.grade) + "</th></tr>"; }) + "</tbody></table></div>" +
-          "<h3>" + esc(S.attendanceTitle) + "</h3>" + ul(S.attendanceRules) + "</article>" +
+          }) + "</ul>") +
+        acc("grades", S.gradesTitle, (S.grades || []).length ? esc(S.grades[0].grade) + " ~ " + esc(S.grades[S.grades.length - 1].grade) : "",
+          '<div class="tbl-wrap"><table class="grade-tbl"><thead><tr><th scope="col">점수 구간</th><th scope="col">등급</th></tr></thead><tbody>' +
+            list(S.grades, function (g) { return "<tr><td>" + esc(g.range) + "</td><th scope=\"row\">" + esc(g.grade) + "</th></tr>"; }) + "</tbody></table></div>") +
+        acc("attendance", S.attendanceTitle, (S.attendanceRules || []).length ? "규정 " + S.attendanceRules.length + "개" : "", ul(S.attendanceRules)) +
+        acc("tasks", S.tasksTitle, (S.tasks || []).length ? "과제 " + S.tasks.length + "개" : "",
+          list(S.tasks, function (t) { return "<h4>" + esc(t.title) + "</h4>" + ul(t.items); })) +
       "</div>" +
-      '<div class="syl-grid">' +
-        '<article class="card syl-card"><h3>' + esc(S.tasksTitle) + "</h3>" + list(S.tasks, function (t) { return "<h4>" + esc(t.title) + "</h4>" + ul(t.items); }) + "</article>" +
-        '<article class="card syl-card"><h3>' + esc(S.etcTitle) + "</h3>" + ul(S.etc) + "</article>" +
-      "</div>" +
+      ((S.etc || []).length ? '<article class="card syl-card syl-etc"><h3>' + esc(S.etcTitle) + "</h3>" + ul(S.etc) + "</article>" : "") +
     "</div></section>";
   }
 
@@ -561,6 +572,11 @@ window.renderSite = function () {
 
   $("#main").innerHTML = html;
   CUR.init();
+  var sylT = $(".syl-tools");
+  if (sylT) sylT.addEventListener("click", function (e) {
+    var b = e.target.closest("[data-syl]"); if (!b) return;
+    document.querySelectorAll(".syl-acc").forEach(function (d) { d.open = b.dataset.syl === "open"; });
+  });
   var pfF = $(".pf-filter");
   if (pfF) pfF.addEventListener("click", function (e) {
     var b = e.target.closest("[data-cat]"); if (!b) return;

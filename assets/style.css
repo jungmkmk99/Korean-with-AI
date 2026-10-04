@@ -1078,3 +1078,30 @@ input:focus, select:focus, textarea:focus { border-color: var(--blossom); box-sh
 .adm-tbl .cell-clip.small { font-size: .8rem; color: var(--muted); }
 /* 사이트 버전 표시 */
 .footer-bottom .site-ver { margin: 0; font-size: .78rem; color: var(--muted); font-variant-numeric: tabular-nums; padding: 2px 8px; border: 1px solid var(--line); border-radius: 3px; }
+/* 강의계획서: 항목별 드롭다운 */
+.syl-tools { margin-top: 4px; }
+.syl-accs { display: grid; gap: 10px; margin-bottom: 18px; }
+.syl-acc { padding: 0; overflow: hidden; border-radius: var(--radius-md); }
+.syl-acc > summary { list-style: none; cursor: pointer; display: grid; grid-template-columns: auto minmax(0, 1fr) 22px; align-items: center; gap: 6px 16px; padding: 16px 22px; }
+.syl-acc > summary::-webkit-details-marker { display: none; }
+.syl-acc > summary:hover { background: var(--blossom-soft); }
+.syl-acc > summary:focus-visible { outline: 2px solid var(--blossom); outline-offset: -2px; }
+.sa-title { font-family: var(--font-display); font-size: 1.12rem; font-weight: 700; }
+.sa-sub { font-size: .84rem; color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.syl-acc[open] .wk-chev { transform: rotate(180deg); color: var(--blossom); }
+.syl-acc[open] > summary { border-bottom: 1px solid var(--line); }
+.syl-acc[open] .sa-sub { visibility: hidden; }
+.sa-body { padding: 18px 22px 22px; }
+.sa-body > p { margin: 0; color: var(--muted); }
+.sa-body > h4:first-child { margin-top: 0; }
+.sa-body .syl-methods { margin-top: 18px; }
+.sa-body .tbl-wrap { max-width: 520px; }
+.sa-body .learn { margin: 0; }
+.syl-etc { margin-bottom: 18px; }
+@media (max-width: 640px) {
+  .syl-acc > summary { grid-template-columns: minmax(0, 1fr) 22px; padding: 14px 16px; }
+  .sa-sub { grid-column: 1; grid-row: 2; white-space: normal; }
+  .syl-acc > summary .wk-chev { grid-column: 2; grid-row: 1; }
+  .syl-acc[open] .sa-sub { display: none; }
+  .sa-body { padding: 14px 16px 18px; }
+}
