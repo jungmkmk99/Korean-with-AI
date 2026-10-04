@@ -222,6 +222,23 @@
       if (now < lockUntil) { err.textContent = Math.ceil((lockUntil - now) / 1000) + "초 뒤에 다시 시도해 주세요."; return; }
       if (!pw.value) { err.textContent = "비밀번호를 입력해 주세요."; return; }
       var A = window.SITE_CONFIG.admin || {};
+      var ok = function () {
+        fails = 0; setAdmin(true);
+        back.remove(); document.removeEventListener("keydown", onKey);
+        /* 관리자 권한으로 전체 설정(주차별 학습 포함)을 다시 받은 뒤 관리자 화면 열기 */
+        loadConfig().then(openPanel, openPanel);
+      };
+      /* 배포 서버: 비밀번호는 서버가 확인(Railway 환경 변수 ADMIN_PASSWORD 또는 사이트 설정의 비밀번호) */
+      if (Store.isServer()) {
+        var sb = $('button[type="submit"]', back); sb.disabled = true;
+        Store.adminLogin(pw.value).then(ok, function (er) {
+          sb.disabled = false; pw.select();
+          err.textContent = er && er.code === "wrong_password" ? "비밀번호가 맞지 않습니다." + (Store.adminEnv() ? " (Railway 환경 변수 ADMIN_PASSWORD에 넣은 비밀번호를 입력하세요.)" : "")
+            : er && (er.code === "locked" || er.status === 429) ? "비밀번호가 여러 번 틀려 30초 동안 입력할 수 없습니다."
+            : "서버에서 관리자 확인을 하지 못했습니다. 잠시 후 다시 시도해 주세요.";
+        });
+        return;
+      }
       if (A.passwordHash && hashPw(A.salt || "", pw.value) === A.passwordHash) {
         // 배포 서버에서는 서버도 비밀번호를 확인해야 수강생 기록을 읽을 수 있음
         Store.adminLogin(pw.value).then(function () {
@@ -1363,11 +1380,15 @@
           : "‘config.js로 저장’한 파일로 assets 폴더의 config.js를 바꾸면, 고친 내용이 어느 컴퓨터에서 열어도 적용됩니다.") + "</p>" +
         '<p class="form-err" id="sfErr" role="alert"></p>' +
         '<div class="adm-row"><button type="button" class="text-btn danger" id="sfReset">처음 상태(config.js 파일 내용)로 되돌리기</button></div></div>' +
-      '<form class="adm-card adm-form" id="pwForm" novalidate><h3>관리자 비밀번호 변경</h3>' +
+      (Store.isServer() && Store.adminEnv()
+        ? '<div class="adm-card"><h3>관리자 비밀번호</h3><p class="muted">지금은 <b>Railway 환경 변수 <code>ADMIN_PASSWORD</code></b>에 넣은 비밀번호로 관리자 로그인을 합니다.</p>' +
+          '<p class="muted small">비밀번호를 바꾸려면 Railway → Korean-with-AI 서비스 → <b>Variables</b>에서 <code>ADMIN_PASSWORD</code> 값을 고치세요. 고치면 서버가 다시 배포되고, 새 비밀번호로 다시 로그인해야 합니다. 이 값을 지우면 아래의 사이트 설정 비밀번호를 다시 씁니다.</p></div>'
+        : "") +
+      (Store.isServer() && Store.adminEnv() ? "" : '<form class="adm-card adm-form" id="pwForm" novalidate><h3>관리자 비밀번호 변경</h3>' +
         '<p class="muted small">비밀번호는 그대로 저장하지 않고 되돌릴 수 없는 암호화 값(해시)으로만 설정에 들어갑니다.</p>' +
         '<label class="lbl" for="pwNew">새 비밀번호 (8자 이상)</label><input type="password" id="pwNew" autocomplete="new-password">' +
         '<label class="lbl" for="pwNew2">새 비밀번호 확인</label><input type="password" id="pwNew2" autocomplete="new-password">' +
-        '<p class="form-err" id="pwErr" role="alert"></p><button type="submit" class="btn primary sm">비밀번호 바꾸기</button></form>';
+        '<p class="form-err" id="pwErr" role="alert"></p><button type="submit" class="btn primary sm">비밀번호 바꾸기</button></form>');
     var fileOk = function (r) { if (r !== "declined") toast("설정 파일을 저장했습니다."); };
     var j = $("#sfJs"); if (j) j.addEventListener("click", function () { saveFile("config.js", configFileText(window.SITE_CONFIG)).then(fileOk, function (e) { $("#sfErr").textContent = saveErr(e); }); });
     $("#sfJson").addEventListener("click", function () { saveFile("site-settings_" + stamp() + ".json", JSON.stringify(window.SITE_CONFIG, null, 2)).then(fileOk, function (e) { $("#sfErr").textContent = saveErr(e); }); });
@@ -1384,7 +1405,8 @@
       var b = this; if (b.dataset.confirm !== "1") { b.dataset.confirm = "1"; b.textContent = "화면에서 고친 내용이 모두 사라집니다. 한 번 더 누르면 되돌립니다"; return; }
       resetConfig().then(function () { draft = clone(window.SITE_CONFIG); dirty = false; window.SITE_CONFIG_SOURCE = ""; toast("처음 상태로 되돌렸습니다."); tSettings(main); });
     });
-    $("#pwForm").addEventListener("submit", function (e) {
+    var pwf = $("#pwForm");
+    if (pwf) pwf.addEventListener("submit", function (e) {
       e.preventDefault();
       var a = $("#pwNew").value, b = $("#pwNew2").value, err = $("#pwErr");
       if (a.length < 8) { err.textContent = "8자 이상으로 정해 주세요."; $("#pwNew").focus(); return; }
@@ -1392,6 +1414,9 @@
       var salt = "akd-" + Math.random().toString(36).slice(2, 10), cfg = clone(window.SITE_CONFIG);
       cfg.admin = { salt: salt, passwordHash: hashPw(salt, a) };
       applyConfig(cfg, true).then(function () {
+        /* 배포 서버: 비밀번호가 바뀌면 기존 로그인 토큰이 무효가 되므로 새 비밀번호로 바로 다시 로그인 */
+        return Store.isServer() ? Store.adminLogin(a) : null;
+      }).then(function () {
         lsS("admin", cfg.admin.passwordHash);
         draft = clone(cfg); window.SITE_CONFIG_SOURCE = cloud ? "shared" : "browser";
         toast("비밀번호를 바꿨습니다."); tSettings(main);

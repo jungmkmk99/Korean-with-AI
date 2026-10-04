@@ -25,7 +25,7 @@
     function notify() { subs.forEach(function (f) { f(); }); }
 
     /* 배포 서버(Railway + PostgreSQL)의 저장 API를 claude 저장소와 같은 모양으로 감쌈 */
-    var server = false, adminToken = null, watchers = [], pollTimer = null, srvApproved = false;
+    var server = false, adminToken = null, watchers = [], pollTimer = null, srvApproved = false, adminEnv = false;
     /* 관리자 로그인 토큰은 이 브라우저에 보관 → 새로고침하거나 창을 닫았다 열어도 로그인 유지(서버 기준 30일) */
     function tokenGet() { var t = lsGet("adminToken"); if (!t) { try { t = sessionStorage.getItem("akd:adminToken"); } catch (e) {} } return t || null; }
     function tokenSet(v) { if (v) lsSet("adminToken", v); else lsDel("adminToken"); try { sessionStorage.removeItem("akd:adminToken"); } catch (e) {} }
@@ -108,7 +108,7 @@
         };
         return askMe(2).then(function (j) {
           if (!j || !j.uid) throw {};
-          server = true; db = serverDb; uid = j.uid; mode = "cloud"; canWrite = true; srvApproved = !!j.approved;
+          server = true; db = serverDb; uid = j.uid; mode = "cloud"; canWrite = true; srvApproved = !!j.approved; adminEnv = !!j.adminEnv;
           if (!j.admin) { adminToken = null; tokenSet(null); }
           else { if (j.token) adminToken = j.token; tokenSet(adminToken); } // 서버가 기간을 늘린 새 토큰으로 교체
         }).catch(function () { server = false; adminToken = null; useLocal(); });
@@ -171,6 +171,7 @@
     return {
       init: init, get: get, set: set, del: del, list: list, watchDoc: watchDoc, watchCollection: watchCollection,
       refreshMe: refreshMe, fetchConfig: fetchConfig, srvApproved: function () { return srvApproved; },
+      adminEnv: function () { return adminEnv; }, // 관리자 비밀번호를 Railway 환경 변수 ADMIN_PASSWORD로 쓰는 중
       mode: function () { return mode; }, uid: function () { return uid; }, canWrite: function () { return canWrite; },
       canEdit: function () { return mode === "local" || (server ? !!adminToken : canEdit); },
       isServer: function () { return server; }, adminLogin: adminLogin, adminLogout: adminLogout

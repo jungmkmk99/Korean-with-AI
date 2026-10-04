@@ -1,6 +1,6 @@
 {
   "name": "korean-with-ai",
-  "version": "1.2.6",
+  "version": "1.2.7",
   "private": true,
   "description": "AI로배우는한국어 강의 사이트 (정적 페이지 + 저장 API(PostgreSQL 또는 JSON 파일))",
   "main": "server.js",

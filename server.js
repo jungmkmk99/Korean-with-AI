@@ -205,7 +205,11 @@ function redact(cfg) {
   });
   return c;
 }
+/* 관리자 비밀번호: Railway 환경 변수 ADMIN_PASSWORD가 있으면 그것만 사용(앞뒤 공백 무시).
+   없으면 관리자 화면에서 바꾼 비밀번호(공유 설정) → config.js 순서 */
+const ENV_PW = String(process.env.ADMIN_PASSWORD || "").trim();
 async function currentAdmin() {
+  if (ENV_PW) return { env: true, passwordHash: sha256("akd-env-admin::" + ENV_PW) };
   const s = await sharedConfig();
   if (s && s.admin && s.admin.passwordHash) return s.admin;
   const f = fileConfig();
@@ -232,7 +236,7 @@ app.use("/api", (req, res, next) => {
 app.get("/api/me", wrap(async (req, res) => {
   const a = await approval(req), admin = await isAdmin(req);
   // 관리자면 만료 시각을 새로 늘린 토큰을 함께 보냄(접속할 때마다 30일 연장)
-  res.json({ uid: clientUid(req), admin, approved: a.approved, studentId: a.studentId, token: admin ? await makeToken() : undefined });
+  res.json({ uid: clientUid(req), admin, approved: a.approved, studentId: a.studentId, token: admin ? await makeToken() : undefined, adminEnv: !!ENV_PW });
 }));
 
 /* 지금 적용할 사이트 설정: 공유 수정본이 있으면 그것, 없으면 config.js. 승인 전이면 주차별 자료 · 영상은 빠짐 */
@@ -285,7 +289,7 @@ app.post("/api/admin/login", wrap(async (req, res) => {
   const pw = String((req.body && req.body.password) || "");
   const a = await currentAdmin();
   const want = Buffer.from((a && a.passwordHash) || "", "utf8");
-  const got = Buffer.from(sha256(((a && a.salt) || "") + "::" + pw), "utf8");
+  const got = Buffer.from(a && a.env ? sha256("akd-env-admin::" + pw.trim()) : sha256(((a && a.salt) || "") + "::" + pw), "utf8");
   if (!pw || !want.length || want.length !== got.length || !crypto.timingSafeEqual(want, got)) {
     f.n++; if (f.n >= 5) { f.n = 0; f.until = Date.now() + 30000; } fails.set(ip, f);
     return res.status(401).json({ code: "wrong_password" });
@@ -320,7 +324,7 @@ app.use((req, res) => res.status(404).send("Not found"));
 /* 시작: 먼저 사이트를 열고, 저장소(DB)는 준비될 때까지 5초마다 다시 시도 (DB 문제로 서버가 꺼졌다 켜지기를 반복하지 않게) */
 const PORT = process.env.PORT || 3000;
 process.on("unhandledRejection", (e) => console.error("처리하지 못한 오류(서버는 계속 실행):", e));
-app.listen(PORT, () => console.log("서버 실행 중: 포트 " + PORT + " · 저장소: " + store.kind));
+app.listen(PORT, () => console.log("서버 실행 중: 포트 " + PORT + " · 저장소: " + store.kind + " · 관리자 비밀번호: " + (ENV_PW ? "Railway 환경 변수 ADMIN_PASSWORD" : "사이트 설정의 해시")));
 (function initStore(n) {
   store.init().then(() => { storeReady = true; console.log("저장소 준비 완료: " + store.kind); }, (e) => {
     console.error("저장소 준비 실패(" + n + "번째 시도) — 5초 뒤 다시 시도합니다:", (e && e.message) || e);
