@@ -25,7 +25,7 @@ window.SITE_CONFIG = {
   },
 
   /* ---------- 3. 상단 메뉴 (id는 바꾸지 마세요) ---------- */
-  navRev: 4,       // 메뉴 구성 버전(바꾸지 마세요)
+  navRev: 5,       // 메뉴 구성 버전(바꾸지 마세요)
   contentRev: 4,   // 내용 정리 버전(바꾸지 마세요)
   nav: [
     { id: "intro",      label: "강의 소개" },
@@ -33,7 +33,8 @@ window.SITE_CONFIG = {
     { id: "portfolio",  label: "포트폴리오" },
     { id: "faq",        label: "FAQ" },
     { id: "submit",     label: "과제 제출" },
-    { id: "instructor", label: "교수자" }
+    { id: "instructor", label: "교수자" },
+    { id: "loginCard",  label: "수강생 로그인" }
   ],
 
   /* ---------- 4. 첫 화면 ---------- */

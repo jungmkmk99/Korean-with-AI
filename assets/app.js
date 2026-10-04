@@ -17,11 +17,12 @@ window.renderSite = function () {
   if (!C) { document.body.insertAdjacentHTML("afterbegin", "<p style='padding:20px'>config.js를 불러오지 못했습니다. assets 폴더에 config.js가 있는지 확인하세요.</p>"); return; }
 
   /* 상단 메뉴 구성이 바뀐 경우(관리자 화면에서 저장해 둔 예전 설정 포함) 새 메뉴로 맞춤 */
-  var NAV_REV = 4;
+  var NAV_REV = 5;
   if ((C.navRev || 0) < NAV_REV) {
     C.nav = [
       { id: "intro", label: "강의 소개" }, { id: "curriculum", label: "커리큘럼" },
-      { id: "portfolio", label: "포트폴리오" }, { id: "faq", label: "FAQ" }, { id: "submit", label: "과제 제출" }, { id: "instructor", label: "교수자" }
+      { id: "portfolio", label: "포트폴리오" }, { id: "faq", label: "FAQ" }, { id: "submit", label: "과제 제출" }, { id: "instructor", label: "교수자" },
+      { id: "loginCard", label: "수강생 로그인" }
     ];
     C.navRev = NAV_REV;
   }

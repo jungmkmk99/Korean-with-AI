@@ -1122,3 +1122,5 @@ input:focus, select:focus, textarea:focus { border-color: var(--blossom); box-sh
 /* 강의계획서: 과목 특성 및 수강신청 시 유의사항(카드형) */
 .syl-notes-cards { margin-bottom: 26px; }
 .syl-notes-cards .sub-title { margin-top: 6px; }
+/* 상단 메뉴 '수강생 로그인'으로 이동할 때 머리글에 가리지 않게 */
+#loginCard { scroll-margin-top: calc(var(--header-h) + 16px); }
